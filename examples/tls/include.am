@@ -20,6 +20,14 @@ examples_tls_tls_client_notpm_SOURCES      = examples/tls/tls_client_notpm.c \
 examples_tls_tls_client_notpm_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_tls_tls_client_notpm_DEPENDENCIES = src/libwolftpm.la
 
+noinst_PROGRAMS += examples/tls/tls_client_tss
+noinst_HEADERS  += examples/tls/tls_client.h \
+                   examples/tls/tls_common.h
+examples_tls_tls_client_tss_SOURCES      = examples/tls/tls_client_tss.c \
+									   examples/tpm_io.c
+examples_tls_tls_client_tss_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
+examples_tls_tls_client_tss_DEPENDENCIES = src/libwolftpm.la
+
 noinst_PROGRAMS += examples/tls/tls_server
 noinst_HEADERS  += examples/tls/tls_server.h \
                    examples/tls/tls_common.h
@@ -28,7 +36,6 @@ examples_tls_tls_server_SOURCES      = examples/tls/tls_server.c \
                                        examples/tpm_io.c
 examples_tls_tls_server_LDADD        = src/libwolftpm.la $(LIB_STATIC_ADD)
 examples_tls_tls_server_DEPENDENCIES = src/libwolftpm.la
-
 endif
 
 dist_example_DATA+= examples/tls/tls_client.c

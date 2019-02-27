@@ -1,6 +1,6 @@
-/* tls_client_notpm.c
+/* tls_client_tss.c
  *
- * Copyright (C) 2006-2021 wolfSSL Inc.
+ * Copyright (C) 2006-2018 wolfSSL Inc.
  *
  * This file is part of wolfTPM.
  *
@@ -21,8 +21,11 @@
 
 
 #include <wolftpm/tpm2.h>
+#include <wolftpm/tpm2_wrap.h>
 
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_WOLFSSL_CLIENT)
+#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
+    !defined(NO_WOLFSSL_CLIENT) && \
+    (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
 
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
@@ -38,12 +41,20 @@
 #define USE_CERT_BUFFERS_256
 #include <wolfssl/certs_test.h>
 
-#include <stdio.h>
-
 #ifdef TLS_BENCH_MODE
     double benchStart;
 #endif
 
+#if 0
+#include <tss/platform.h>
+#include <tss/tss_defines.h>
+#include <tss/tss_typedef.h>
+#include <tss/tss_structs.h>
+#include <tss/tss_error.h>
+#include <tss/tspi.h>
+
+#include <trousers/trousers.h>
+#endif
 
 /*
  * This example client connects to localhost on on port 11111 by default.
@@ -56,15 +67,118 @@
  * "-l ECDHE-ECDSA-AES128-SHA -c ./certs/server-ecc.pem -k ./certs/ecc-key.pem"
  */
 
+typedef struct TlsTssCtx {
+    void* test;
+} TlsTssCtx;
+
+static int wolfCryptoCallback(int devId, wc_CryptoInfo* info, void* ctx)
+{
+    int rc = NOT_COMPILED_IN; /* return this to bypass HW and use SW */
+    TlsTssCtx* tlsTssCtx = (TlsTssCtx*)ctx;
+
+    if (info == NULL || ctx == NULL)
+        return BAD_FUNC_ARG;
+
+    (void)devId;
+    (void)tlsTssCtx;
+
+    if (info->algo_type == WC_ALGO_TYPE_RNG) {
+    #ifndef WC_NO_RNG
+    #ifdef DEBUG_WOLFTPM
+        printf("CryptoDevCb RNG: Sz %d\n", info->rng.sz);
+    #endif
+
+    #endif /* !WC_NO_RNG */
+    }
+#if !defined(NO_RSA) || defined(HAVE_ECC)
+    else if (info->algo_type == WC_ALGO_TYPE_PK) {
+    #ifdef DEBUG_WOLFTPM
+        printf("CryptoDevCb Pk: Type %d\n", info->pk.type);
+    #endif
+
+    #ifndef NO_RSA
+        /* RSA */
+        if (info->pk.type == WC_PK_TYPE_RSA_KEYGEN) {
+            rc = NOT_COMPILED_IN;
+        }
+        else if (info->pk.type == WC_PK_TYPE_RSA) {
+            switch (info->pk.rsa.type) {
+                case RSA_PUBLIC_ENCRYPT:
+                case RSA_PUBLIC_DECRYPT:
+                {
+
+                    break;
+                }
+                case RSA_PRIVATE_ENCRYPT:
+                case RSA_PRIVATE_DECRYPT:
+                {
+
+                    break;
+                }
+            }
+        }
+    #endif /* !NO_RSA */
+    #ifdef HAVE_ECC
+        if (info->pk.type == WC_PK_TYPE_EC_KEYGEN) {
+
+        }
+        else if (info->pk.type == WC_PK_TYPE_ECDSA_SIGN) {
+
+        }
+        else if (info->pk.type == WC_PK_TYPE_ECDSA_VERIFY) {
+
+        }
+        else if (info->pk.type == WC_PK_TYPE_ECDH) {
+
+        }
+    #endif /* HAVE_ECC */
+    }
+#endif /* !NO_RSA || HAVE_ECC */
+#ifndef NO_AES
+    else if (info->algo_type == WC_ALGO_TYPE_CIPHER) {
+    #ifdef DEBUG_WOLFTPM
+        printf("CryptoDevCb Cipher: Type %d\n", info->cipher.type);
+    #endif
+        if (info->cipher.type != WC_CIPHER_AES_CBC) {
+            return NOT_COMPILED_IN;
+        }
+    }
+#endif /* !NO_AES */
+#if !defined(NO_SHA) || !defined(NO_SHA256)
+    else if (info->algo_type == WC_ALGO_TYPE_HASH) {
+    #ifdef DEBUG_WOLFTPM
+        printf("CryptoDevCb Hash: Type %d\n", info->hash.type);
+    #endif
+        if (info->hash.type != WC_HASH_TYPE_SHA &&
+            info->hash.type != WC_HASH_TYPE_SHA256) {
+            return NOT_COMPILED_IN;
+        }
+    }
+#endif /* !NO_SHA || !NO_SHA256 */
+#ifndef NO_HMAC
+    else if (info->algo_type == WC_ALGO_TYPE_HMAC) {
+    #ifdef DEBUG_WOLFTPM
+        printf("CryptoDevCb HMAC: Type %d\n", info->hmac.macType);
+    #endif
+    }
+#endif /* !NO_HMAC */
+
+    /* need to return negative here for error */
+    if (rc != 0 && rc != NOT_COMPILED_IN) {
+    #ifdef DEBUG_WOLFTPM
+        printf("wolfCryptoCallback failed rc = %d\n", rc);
+    #endif
+        rc = WC_HW_E;
+    }
+
+    return rc;
+}
+
 
 /******************************************************************************/
 /* --- BEGIN TLS Client Example -- */
 /******************************************************************************/
-int TLS_Client(void)
-{
-    return TLS_ClientArgs(0, NULL);
-}
-int TLS_ClientArgs(int argc, char *argv[])
+int TLS_Client_TSS(void)
 {
     int rc = 0;
     SockIoCbCtx sockIoCtx;
@@ -79,10 +193,8 @@ int TLS_ClientArgs(int argc, char *argv[])
     int total_size;
     int i;
 #endif
-    int useECC = 0;
-
-    (void)argc;
-    (void)argv;
+    TlsTssCtx tlsTssCtx;
+    const int devId = 0x545353; /* TSS - can be anything, just not -2 (INVALID_DEVID) */
 
     /* initialize variables */
     XMEMSET(&sockIoCtx, 0, sizeof(sockIoCtx));
@@ -90,18 +202,14 @@ int TLS_ClientArgs(int argc, char *argv[])
 
     printf("TLS Client Example\n");
 
-    if (argc > 1) {
-        if (XSTRNCMP(argv[1], "ECC", 3) == 0) {
-            useECC = 1;
-        }
-    }
-
-    /* TODO make use of useECC */
-    (void)useECC;
-
     wolfSSL_Debugging_ON();
 
     wolfSSL_Init();
+
+    /* Register a crypto callback */
+    XMEMSET(&tlsTssCtx, 0, sizeof(tlsTssCtx));
+    rc = wc_CryptoDev_RegisterDevice(devId, wolfCryptoCallback, &tlsTssCtx);
+    if (rc != 0) goto exit;
 
     /* Setup the WOLFSSL context (factory) */
     if ((ctx = wolfSSL_CTX_new(wolfTLSv1_2_client_method())) == NULL) {
@@ -120,21 +228,21 @@ int TLS_ClientArgs(int argc, char *argv[])
     wolfSSL_CTX_set_verify(ctx, WOLFSSL_VERIFY_PEER, myVerify);
 
     /* Load CA Certificates from Buffer */
-	#if !defined(NO_RSA) && !defined(TLS_USE_ECC)
-    	if (wolfSSL_CTX_load_verify_buffer(ctx,
+    #if !defined(NO_RSA) && !defined(TLS_USE_ECC)
+        if (wolfSSL_CTX_load_verify_buffer(ctx,
                 ca_cert_der_2048, sizeof_ca_cert_der_2048,
                 WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
-			printf("Error loading ca_cert_der_2048 DER cert\n");
-			goto exit;
-		}
-	#elif defined(HAVE_ECC)
-    	if (wolfSSL_CTX_load_verify_buffer(ctx,
+            printf("Error loading ca_cert_der_2048 DER cert\n");
+            goto exit;
+        }
+    #elif defined(HAVE_ECC)
+        if (wolfSSL_CTX_load_verify_buffer(ctx,
                 ca_ecc_cert_der_256, sizeof_ca_ecc_cert_der_256,
                 WOLFSSL_FILETYPE_ASN1) != WOLFSSL_SUCCESS) {
-			printf("Error loading ca_ecc_cert_der_256 DER cert\n");
-			goto exit;
-		}
-	#endif
+            printf("Error loading ca_ecc_cert_der_256 DER cert\n");
+            goto exit;
+        }
+    #endif
 #endif
 
 #ifndef NO_TLS_MUTUAL_AUTH
@@ -287,6 +395,8 @@ exit:
     CloseAndCleanupSocket(&sockIoCtx);
     wolfSSL_free(ssl);
     wolfSSL_CTX_free(ctx);
+
+    wc_CryptoCb_UnRegisterDevice(devId); /* also done on wolfSSL_Init() */
     wolfSSL_Cleanup();
 
     return rc;
@@ -295,20 +405,22 @@ exit:
 /******************************************************************************/
 /* --- END TLS Client Example -- */
 /******************************************************************************/
-#endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_WOLFSSL_CLIENT */
+#endif /* !WOLFTPM2_NO_WRAPPER && !WOLFTPM2_NO_WOLFCRYPT && !NO_WOLFSSL_CLIENT
+            && WOLF_CRYPTO_CB */
 
 
 #ifndef NO_MAIN_DRIVER
-int main(int argc, char *argv[])
+int main(void)
 {
     int rc = -1;
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
-    !defined(NO_WOLFSSL_CLIENT)
-    rc = TLS_ClientArgs(argc, argv);
+    !defined(NO_WOLFSSL_CLIENT) && \
+    (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
+    rc = TLS_Client_TSS();
 #else
-    printf("WolfSSL Client code not compiled in\n");
-    printf("Requires wolfSSL built with TLS client enabled\n");
+    printf("WolfSSL Client TSS code not compiled in\n");
+    printf("Requires wolfSSL built with: ./configure --enable-cryptodev\n");
 #endif
 
     return rc;
