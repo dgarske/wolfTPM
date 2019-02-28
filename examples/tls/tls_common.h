@@ -22,19 +22,7 @@
 #ifndef _TPM_TLS_COMMON_H_
 #define _TPM_TLS_COMMON_H_
 
-#include <wolftpm/tpm2.h>
-#include <wolftpm/tpm2_wrap.h>
-
-#if !defined(WOLFTPM2_NO_WOLFCRYPT)
-
-#include <wolftpm/tpm2_socket.h>
-
-#include <examples/tpm_io.h>
-#include <examples/tpm_test.h>
-#include <examples/tls/tls_common.h>
-#include <examples/tls/tls_client.h>
-
-#include <wolfssl/ssl.h>
+#if !defined(WOLFCRYPT_ONLY)
 
 #include <stdio.h>
 
@@ -373,7 +361,9 @@ static inline int myVerify(int preverify, WOLFSSL_X509_STORE_CTX* store)
     return 1;
 }
 
-#if defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB)
+/* only include below if TPM wrapper headers are included */
+#if defined(__TPM2_WRAP_H__) && \
+    (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
 /* Function checks key to see if its the "dummy" key */
 static inline int myTpmCheckKey(wc_CryptoInfo* info, TpmCryptoDevCtx* ctx)
 {
@@ -451,7 +441,7 @@ static inline int myTpmCheckKey(wc_CryptoInfo* info, TpmCryptoDevCtx* ctx)
         provided TPM handle will be used, not the wolf public key info */
     return ret;
 }
-#endif /* WOLF_CRYPTO_DEV || WOLF_CRYPTO_CB */
+#endif /* __TPM2_WRAP_H__ && (WOLF_CRYPTO_DEV || WOLF_CRYPTO_CB) */
 
 /******************************************************************************/
 /* --- END Supporting TLS functions --- */

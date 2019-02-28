@@ -21,12 +21,12 @@
 
 
 #include <wolftpm/tpm2.h>
-#include <wolftpm/tpm2_wrap.h>
 
 #if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
 	!defined(NO_WOLFSSL_SERVER) && \
 	(defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
 
+#include <wolftpm/tpm2_wrap.h>
 #include <examples/tpm_io.h>
 #include <examples/tpm_test.h>
 #include <examples/tpm_test_keys.h>

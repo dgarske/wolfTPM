@@ -19,21 +19,27 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#ifndef WOLFSSL_USER_SETTINGS
+    #include <wolfssl/options.h>
+#endif
+#include <wolfssl/wolfcrypt/settings.h>
+#include <wolfssl/wolfcrypt/types.h>
+#include <wolfssl/wolfcrypt/logging.h>
+#include <wolfssl/wolfcrypt/error-crypt.h>
+#include <wolfssl/wolfcrypt/hash.h>
+#include <wolfssl/wolfcrypt/rsa.h>
+#include <wolfssl/wolfcrypt/ecc.h>
+#include <wolfssl/wolfcrypt/asn_public.h>
+#include <wolfssl/ssl.h>
 
-#include <wolftpm/tpm2.h>
-#include <wolftpm/tpm2_wrap.h>
-
-#if !defined(WOLFTPM2_NO_WRAPPER) && !defined(WOLFTPM2_NO_WOLFCRYPT) && \
-    !defined(NO_WOLFSSL_CLIENT) && \
+#if !defined(WOLFCRYPT_ONLY) && !defined(NO_WOLFSSL_CLIENT) && \
     (defined(WOLF_CRYPTO_DEV) || defined(WOLF_CRYPTO_CB))
 
-#include <examples/tpm_io.h>
-#include <examples/tpm_test.h>
-#include <examples/tls/tls_common.h>
-#include <examples/tls/tls_client.h>
-
-#include <wolfssl/ssl.h>
-#include <wolfssl/wolfcrypt/logging.h>
+#ifdef WOLF_CRYPTO_CB
+    #include <wolfssl/wolfcrypt/cryptocb.h>
+#elif defined(WOLF_CRYPTO_DEV)
+    #include <wolfssl/wolfcrypt/cryptodev.h>
+#endif
 
 #undef  USE_CERT_BUFFERS_2048
 #define USE_CERT_BUFFERS_2048
@@ -41,19 +47,15 @@
 #define USE_CERT_BUFFERS_256
 #include <wolfssl/certs_test.h>
 
+#include "tls_common.h"
+#include "tls_client.h"
+
 #ifdef TLS_BENCH_MODE
     double benchStart;
 #endif
 
 #if 0
-#include <tss/platform.h>
-#include <tss/tss_defines.h>
-#include <tss/tss_typedef.h>
-#include <tss/tss_structs.h>
-#include <tss/tss_error.h>
-#include <tss/tspi.h>
-
-#include <trousers/trousers.h>
+#include <tss2/tss2_esys.h>
 #endif
 
 /*

@@ -19,18 +19,20 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-
-#include <wolftpm/tpm2.h>
-
-#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(NO_WOLFSSL_CLIENT)
-
-#include <examples/tpm_io.h>
-#include <examples/tpm_test.h>
-#include <examples/tls/tls_common.h>
-#include <examples/tls/tls_client.h>
-
-#include <wolfssl/ssl.h>
+#ifndef WOLFSSL_USER_SETTINGS
+    #include <wolfssl/options.h>
+#endif
+#include <wolfssl/wolfcrypt/settings.h>
+#include <wolfssl/wolfcrypt/types.h>
 #include <wolfssl/wolfcrypt/logging.h>
+#include <wolfssl/wolfcrypt/error-crypt.h>
+#include <wolfssl/wolfcrypt/hash.h>
+#include <wolfssl/wolfcrypt/rsa.h>
+#include <wolfssl/wolfcrypt/ecc.h>
+#include <wolfssl/wolfcrypt/asn_public.h>
+#include <wolfssl/ssl.h>
+
+#if !defined(WOLFCRYPT_ONLY) && !defined(NO_WOLFSSL_CLIENT)
 
 #undef  USE_CERT_BUFFERS_2048
 #define USE_CERT_BUFFERS_2048
@@ -39,6 +41,9 @@
 #include <wolfssl/certs_test.h>
 
 #include <stdio.h>
+
+#include "tls_common.h"
+#include "tls_client.h"
 
 #ifdef TLS_BENCH_MODE
     double benchStart;
