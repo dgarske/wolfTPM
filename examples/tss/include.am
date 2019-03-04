@@ -1,0 +1,10 @@
+# vim:ft=automake
+# All paths should be given relative to the root
+
+if BUILD_EXAMPLES
+
+noinst_HEADERS += \
+					examples/tss/wolf_tss.c \
+					examples/tss/wolf_tss.h
+
+endif
