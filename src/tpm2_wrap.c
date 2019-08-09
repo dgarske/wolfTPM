@@ -1005,6 +1005,41 @@ int wolfTPM2_LoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     return rc;
 }
 
+int wolfTPM2_HierarchyChangeAuth(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    TPM_HANDLE hierarchyHandle, const byte* auth, int authSz)
+{
+    int rc;
+    HierarchyChangeAuth_In hierarchyIn;
+
+    if (dev == NULL || key == NULL)
+        return BAD_FUNC_ARG;
+
+    /* clear auth */
+    XMEMSET(&dev->session[0].auth, 0, sizeof(dev->session[0].auth));
+
+    XMEMSET(&hierarchyIn, 0, sizeof(hierarchyIn));
+    hierarchyIn.authHandle = hierarchyHandle;
+    if (auth) {
+        if (authSz > (int)sizeof(hierarchyIn.newAuth.buffer))
+            authSz = (int)sizeof(hierarchyIn.newAuth.buffer);
+        hierarchyIn.newAuth.size = authSz;
+        XMEMCPY(hierarchyIn.newAuth.buffer, auth, hierarchyIn.newAuth.size);
+    }
+
+    rc = TPM2_HierarchyChangeAuth(&hierarchyIn);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2_HierarchyControl failed %d: %s\n", rc,
+                wolfTPM2_GetRCString(rc));
+    #endif
+        return rc;
+    }
+
+    key->handle.auth = hierarchyIn.newAuth;
+
+    return rc;
+}
+
 int wolfTPM2_CreateAndLoadKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     WOLFTPM2_HANDLE* parent, TPMT_PUBLIC* publicTemplate,
     const byte* auth, int authSz)
