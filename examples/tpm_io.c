@@ -113,6 +113,13 @@
     #define TPM2_SPI_DEVID      XPAR_XSPIPS_1_DEVICE_ID
     #endif
 
+#elif defined(INFINEON_TC27X)
+    #include <Ifx_Types.h>
+    #include <Qspi/SpiMaster/IfxQspi_SpiMaster.h>
+
+    /* externally declared SPI master channel */
+    extern IfxQspi_SpiMaster_Channel spiMasterChannel
+
 #else
     /* TODO: Add your platform here for HW interface */
 
@@ -800,6 +807,30 @@
     }
 
 
+
+#elif defined(INFINEON_TC27X)
+    static int TPM2_IoCb_InfineonTC27X_SPI(TPM2_CTX* ctx, const byte* txBuf,
+        byte* rxBuf, word16 xferSz, void* userCtx)
+    {
+        int ret = TPM_RC_FAILURE;
+
+    #ifdef WOLFTPM_CHECK_WAIT_STATE
+        #error SPI check wait state logic not supported
+    #endif
+
+        /* wait for SPI not busy */
+        while (IfxQspi_SpiMaster_getStatus(&spiMasterChannel) == SpiIf_Status_busy) {}
+
+        /* synchronously send data */
+        if (IfxQspi_SpiMaster_exchange(&spiMasterChannel, txBuf, rxBuf, xferSz) == SpiIf_Status_ok) {
+            ret = TPM_RC_SUCCESS;
+        }
+
+        (void)userCtx;
+        (void)ctx;
+
+        return ret;
+    }
 #endif
 
 
@@ -819,6 +850,8 @@ static int TPM2_IoCb_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
     ret = TPM2_IoCb_Barebox_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
 #elif defined(__XILINX__)
     ret = TPM2_IoCb_Xilinx_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
+#elif defined(INFINEON_TC27X)
+    ret = TPM2_IoCb_InfineonTC27X_SPI(ctx, txBuf, rxBuf, xferSz, userCtx);
 #else
 
     /* TODO: Add your platform here for HW SPI interface */
