@@ -46,6 +46,8 @@ pkcs7tpmsigned.p7s
 pkcs7tpmsignedex.p7s
 examples/tls/tls_server
 examples/tls/tls_client_notpm
+examples/seal/seal
+examples/seal/unseal
 tests/unit.test
 examples/keygen/keyload
 examples/keygen/keygen
