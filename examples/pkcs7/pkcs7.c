@@ -410,7 +410,7 @@ int main(int argc, char *argv[])
     (void)argc;
     (void)argv;
 
-    printf("Wrapper/PKCS7/CryptoDev code not compiled in\n");
+    printf("Wrapper/PKCS7/CryptoCb code not compiled in\n");
     printf("Build wolfssl with ./configure --enable-pkcs7 --enable-cryptocb\n");
 #endif
 

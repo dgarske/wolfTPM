@@ -267,7 +267,7 @@ int main(int argc, char *argv[])
     (void)argc;
     (void)argv;
 
-    printf("Wrapper/CertReq/CryptoDev code not compiled in\n");
+    printf("Wrapper/CertReq/CryptoCb code not compiled in\n");
     printf("Build wolfssl with ./configure --enable-certgen --enable-certreq --enable-certext --enable-cryptocb\n");
 #endif
 
