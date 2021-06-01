@@ -54,7 +54,7 @@ static volatile int gWolfCryptRefCount = 0;
 /******************************************************************************/
 /* --- Local Functions -- */
 /******************************************************************************/
-static TPM_RC TPM2_AcquireLock(TPM2_CTX* ctx)
+TPM_RC TPM2_AcquireLock(TPM2_CTX* ctx)
 {
 #if defined(WOLFTPM2_NO_WOLFCRYPT) || defined(SINGLE_THREADED)
     (void)ctx;
@@ -78,7 +78,7 @@ static TPM_RC TPM2_AcquireLock(TPM2_CTX* ctx)
     return TPM_RC_SUCCESS;
 }
 
-static void TPM2_ReleaseLock(TPM2_CTX* ctx)
+void TPM2_ReleaseLock(TPM2_CTX* ctx)
 {
 #if defined(WOLFTPM2_NO_WOLFCRYPT) || defined(SINGLE_THREADED)
     (void)ctx;
@@ -151,7 +151,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
         TPMS_AUTH_COMMAND authCmd;
 
         if (session->sessionHandle != TPM_RS_PW) {
-            /* Generate fresh nonce */
+            /* Generate fresh nonce - TPM ctx already locked */
             rc = TPM2_GetNonce(session->nonceCaller.buffer,
                 session->nonceCaller.size);
             if (rc != TPM_RC_SUCCESS) {
@@ -5283,8 +5283,7 @@ int TPM2_GetNonce(byte* nonceBuf, int nonceSz)
 #ifdef WOLFTPM2_USE_WOLF_RNG
     WC_RNG* rng = NULL;
 #else
-    GetRandom_In in;
-    GetRandom_Out out;
+    TPM2_Packet packet;
     int randSz = 0;
 #endif
 
@@ -5298,19 +5297,25 @@ int TPM2_GetNonce(byte* nonceBuf, int nonceSz)
         rc = wc_RNG_GenerateBlock(rng, nonceBuf, nonceSz);
     }
 #else
-    /* Use TPM GetRandom */
-    XMEMSET(&in, 0, sizeof(in));
+    /* Use TPM GetRandom without lock */
     while (randSz < nonceSz) {
-        in.bytesRequested = nonceSz - randSz;
-        if (in.bytesRequested > sizeof(out.randomBytes.buffer))
-            in.bytesRequested = sizeof(out.randomBytes.buffer);
-
-        rc = TPM2_GetRandom(&in, &out);
+        /* TODO: Investigate issue using this call from TPM2_CommandProcess. Seems to corrupt CTX */
+        UINT16 inSz = nonceSz - randSz, outSz = 0;
+        if (inSz > 32) inSz = 32;
+        
+        TPM2_Packet_Init(ctx, &packet);
+        TPM2_Packet_AppendU16(&packet, inSz);
+        TPM2_Packet_Finalize(&packet, TPM_ST_NO_SESSIONS, TPM_CC_GetRandom);
+        rc = TPM2_SendCommand(ctx, &packet);
+    #ifdef DEBUG_WOLFTPM
+        printf("Nonce TPM2_GetRandom (%d bytes): %d (%s)\n",
+            inSz, rc, TPM2_GetRCString(rc));
+    #endif
         if (rc != TPM_RC_SUCCESS)
             break;
-
-        XMEMCPY(&nonceBuf[randSz], out.randomBytes.buffer, out.randomBytes.size);
-        randSz += out.randomBytes.size;
+        TPM2_Packet_ParseU16(&packet, &outSz);
+        TPM2_Packet_ParseBytes(&packet, &nonceBuf[randSz], outSz);
+        randSz += outSz;
     }
 #endif
 

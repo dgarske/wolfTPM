@@ -2958,6 +2958,9 @@ WOLFTPM_API TPM_RC TPM2_Init_minimal(TPM2_CTX* ctx);
 */
 WOLFTPM_API TPM_RC TPM2_Cleanup(TPM2_CTX* ctx);
 
+WOLFTPM_LOCAL TPM_RC TPM2_AcquireLock(TPM2_CTX* ctx);
+WOLFTPM_LOCAL void TPM2_ReleaseLock(TPM2_CTX* ctx);
+
 /* Other API's - Not in TPM Specification */
 
 /*!

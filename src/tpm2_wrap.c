@@ -606,6 +606,9 @@ int wolfTPM2_EncryptSalt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     StartAuthSession_In* in, TPM2B_AUTH* bindAuth, TPM2B_DIGEST* salt)
 {
     int rc;
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
+#endif
 
     /* if a tpmKey is not present then we are using an unsalted session */
     if (tpmKey == NULL) {
@@ -618,8 +621,16 @@ int wolfTPM2_EncryptSalt(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* tpmKey,
     if (salt->size <= 0) {
         return TPM_RC_FAILURE;
     }
-    rc = TPM2_GetNonce(salt->buffer, salt->size);
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        rc = TPM2_GetNonce(salt->buffer, salt->size);
+        TPM2_ReleaseLock(ctx);
+    }
     if (rc != 0) {
+    #ifdef DEBUG_WOLFTPM
+        printf("Get Salt Nonce failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+    #endif
         return rc;
     }
 
@@ -663,6 +674,7 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
     int encDecAlg)
 {
     int rc;
+    TPM2_CTX* ctx = TPM2_GetActiveCtx();
     StartAuthSession_In  authSesIn;
     StartAuthSession_Out authSesOut;
     TPM2B_AUTH* bindAuth = NULL;
@@ -713,11 +725,16 @@ int wolfTPM2_StartSession(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* session,
         authSesIn.symmetric.algorithm = TPM_ALG_NULL;
     }
     authSesIn.nonceCaller.size = hashDigestSz;
-    rc = TPM2_GetNonce(authSesIn.nonceCaller.buffer,
-                       authSesIn.nonceCaller.size);
+
+    rc = TPM2_AcquireLock(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        rc = TPM2_GetNonce(authSesIn.nonceCaller.buffer,
+                           authSesIn.nonceCaller.size);
+        TPM2_ReleaseLock(ctx);
+    }
     if (rc < 0) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_GetNonce failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        printf("Get session nonce failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
     #endif
         return rc;
     }
@@ -1171,12 +1188,21 @@ int wolfTPM2_SensitiveToPrivate(TPM2B_SENSITIVE* sens, TPM2B_PRIVATE* priv,
         Aes enc;
         TPM2B_IV ivField;
         TPM2B_SYM_KEY symKey;
+        TPM2_CTX* ctx = TPM2_GetActiveCtx();
 
         /* Generate IV */
         ivField.size = digestSz;
-        rc = TPM2_GetNonce(ivField.buffer, ivField.size);
-        if (rc != 0)
+        rc = TPM2_AcquireLock(ctx);
+        if (rc == TPM_RC_SUCCESS) {
+            rc = TPM2_GetNonce(ivField.buffer, ivField.size);
+            TPM2_ReleaseLock(ctx);
+        }
+        if (rc != 0) {
+        #ifdef DEBUG_WOLFTPM
+            printf("Get IV nonce failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
+        #endif
             return rc;
+        }
 
         /* Generate symmetric key for encryption of inner values */
         symKey.size = (sym->keyBits.sym + 7) / 8; /* round up */
