@@ -321,8 +321,9 @@ typedef int64_t  INT64;
     #define WOLFTPM_CHECK_WAIT_STATE
 
     /* use a safe MHz (minimum of above) */
-    #undef  TPM2_SPI_MAX_HZ
-    #define TPM2_SPI_MAX_HZ 33000000
+    #ifndef TPM2_SPI_MAX_HZ
+        #define TPM2_SPI_MAX_HZ 33000000
+    #endif
 
     /* always perform self-test (some chips require) */
     #undef  WOLFTPM_PERFORM_SELFTEST
