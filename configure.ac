@@ -65,8 +65,16 @@ AC_CHECK_FUNCS([gethostbyname getaddrinfo gettimeofday inet_ntoa memset socket])
 AC_CHECK_LIB([network],[socket])
 
 # Thread local storage
-AX_TLS([thread_ls_on=yes],[thread_ls_on=no])
-AS_IF([test "x$thread_ls_on" = "xyes"],[AM_CFLAGS="$AM_CFLAGS -DHAVE_THREAD_LS"])
+AC_ARG_ENABLE([threadlocal],
+    [AS_HELP_STRING([--enable-threadlocal],[Enable thread local support (default: enabled)])],
+    [ ENABLED_THREADLOCAL=$enableval ],
+    [ ENABLED_THREADLOCAL=yes ]
+    )
+if test "$ENABLED_THREADLOCAL" = "yes"
+then
+    AX_TLS([thread_ls_on=yes],[thread_ls_on=no])
+    AS_IF([test "x$thread_ls_on" = "xyes"],[AM_CFLAGS="$AM_CFLAGS -DHAVE_THREAD_LS"])
+fi
 
 # DEBUG
 DEBUG_CFLAGS="-g -O0 -DDEBUG_WOLFTPM"
