@@ -262,9 +262,12 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
 
     if (endorseKey) {
         /* Endorsement Key requires authorization with Policy */
-        wolfTPM2_CreateAuthSession_EkPolicy(&dev, &tpmSession);
+        rc = wolfTPM2_CreateAuthSession_EkPolicy(&dev, &tpmSession);
+        if (rc != 0) goto exit;
+
         /* Set the created Policy Session for use in next operation */
-        wolfTPM2_SetAuthSession(&dev, 0, &tpmSession, 0);
+        rc = wolfTPM2_SetAuthSession(&dev, 0, &tpmSession, 0);
+        if (rc != 0) goto exit;
     }
 
     /* Create new key */

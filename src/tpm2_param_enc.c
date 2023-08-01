@@ -487,7 +487,7 @@ int TPM2_CalcHmac(TPMI_ALG_HASH authHash, TPM2B_AUTH* auth,
 
     /* start HMAC - sessionKey || authValue */
     /* TODO: Handle "authValue" case "a value that is found in the sensitive area of an entity" */
-    if (auth) {
+    if (auth && auth->size > 0) {
 #ifdef WOLFTPM_DEBUG_VERBOSE
     printf("HMAC Key: %d\n", auth->size);
     TPM2_PrintBin(auth->buffer, auth->size);

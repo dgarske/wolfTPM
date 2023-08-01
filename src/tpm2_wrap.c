@@ -837,7 +837,7 @@ int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index,
     }
 
     rc = wolfTPM2_SetAuth(dev, index, tpmSession->handle.hndl,
-        &tpmSession->handle.auth, sessionAttributes, NULL);
+        &tpmSession->handle.auth, sessionAttributes, &tpmSession->handle.name);
     if (rc == TPM_RC_SUCCESS) {
         TPM2_AUTH_SESSION* session = &dev->session[index];
 
