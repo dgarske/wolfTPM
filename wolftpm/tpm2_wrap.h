@@ -667,6 +667,10 @@ WOLFTPM_API int wolfTPM2_CreateLoadedKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* ke
 WOLFTPM_API int wolfTPM2_LoadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     const TPM2B_PUBLIC* pub);
 
+/* Same as wolfTPM2_LoadPublicKey, but adds hierarchy option (default is owner) */
+WOLFTPM_API int wolfTPM2_LoadPublicKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const TPM2B_PUBLIC* pub, TPM_HANDLE hierarchy);
+
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Single function to import an external private key and load it into the TPM in one step

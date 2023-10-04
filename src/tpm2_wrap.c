@@ -783,7 +783,8 @@ int wolfTPM2_SetAuthSession(WOLFTPM2_DEV* dev, int index,
 
         /* define the symmetric algorithm */
         session->authHash = tpmSession->authHash;
-        session->symmetric = tpmSession->handle.symmetric;
+        XMEMCPY(&session->symmetric, &tpmSession->handle.symmetric,
+            sizeof(TPMT_SYM_DEF));
 
         /* fresh nonce generated in TPM2_CommandProcess based on this size */
         session->nonceCaller.size = TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST);
@@ -1449,8 +1450,8 @@ int wolfTPM2_CreateLoadedKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEYBLOB* keyBlob,
     return rc;
 }
 
-int wolfTPM2_LoadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
-    const TPM2B_PUBLIC* pub)
+int wolfTPM2_LoadPublicKey_ex(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const TPM2B_PUBLIC* pub, TPM_HANDLE hierarchy)
 {
     int rc;
     LoadExternal_In  loadExtIn;
@@ -1462,7 +1463,7 @@ int wolfTPM2_LoadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     /* Loading public key */
     XMEMSET(&loadExtIn, 0, sizeof(loadExtIn));
     wolfTPM2_CopyPub(&loadExtIn.inPublic, pub);
-    loadExtIn.hierarchy = TPM_RH_NULL;
+    loadExtIn.hierarchy = hierarchy;
     rc = TPM2_LoadExternal(&loadExtIn, &loadExtOut);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
@@ -1482,6 +1483,11 @@ int wolfTPM2_LoadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 #endif
 
     return rc;
+}
+int wolfTPM2_LoadPublicKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
+    const TPM2B_PUBLIC* pub)
+{
+    return wolfTPM2_LoadPublicKey_ex(dev, key, pub, TPM_RH_OWNER);
 }
 
 int wolfTPM2_ComputeName(const TPM2B_PUBLIC* pub, TPM2B_NAME* out)

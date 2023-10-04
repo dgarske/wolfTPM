@@ -197,6 +197,14 @@ typedef int64_t  INT64;
     #define XATOI(s)          atoi((s))
 #endif
 
+/* make sure file IO macros are available for examples */
+#ifndef XFEOF /* used in pcr/extend example */
+    #define XFEOF      feof
+#endif
+#ifndef XREWIND /* used in tpm_test_keys.c */
+    #define XREWIND    rewind
+#endif
+
 /* enable way for customer to override printf */
 #ifdef XPRINTF
     #undef  printf
