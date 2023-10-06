@@ -198,7 +198,6 @@ int TPM2_NVRAM_PolicyNV_Example(void* userCtx, int argc, char *argv[])
 
     /* Close session */
     wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
-    wolfTPM2_UnsetAuth(&dev, 1);
 
 
     /* BEGIN TPM2_PolicyNV test */

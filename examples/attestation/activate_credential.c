@@ -147,9 +147,6 @@ int TPM2_ActivateCredential_Example(void* userCtx, int argc, char *argv[])
     }
     printf("AK loaded at 0x%x\n", (word32)akKey.handle.hndl);
 
-    rc = wolfTPM2_UnsetAuth(&dev, 0);
-    if (rc != 0) goto exit;
-
     if (endorseKey) {
         /* Fresh policy session for EK auth */
         rc = wolfTPM2_CreateAuthSession_EkPolicy(&dev, &tpmSession);

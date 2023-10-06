@@ -4444,6 +4444,9 @@ int wolfTPM2_NVDeleteAuth(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
     if (dev->ctx.session) {
         rc = wolfTPM2_SetAuthHandle(dev, 0, parent);
         if (rc != TPM_RC_SUCCESS) { return rc; }
+
+        /* make sure auth index 1 is not set */
+        wolfTPM2_UnsetAuth(dev, 1);
     }
 
     XMEMSET(&in, 0, sizeof(in));
