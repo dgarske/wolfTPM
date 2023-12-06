@@ -497,7 +497,10 @@ static void test_wolfTPM2_KeyBlob(TPM_ALG_ID alg)
     WOLFTPM2_KEYBLOB key;
     WOLFTPM2_BUFFER blob;
     TPMT_PUBLIC publicTemplate;
+#if 0
     word32 privBufferSz, pubBufferSz;
+#endif
+    const char* filename;
 
     XMEMSET(&srk, 0, sizeof(srk));
     XMEMSET(&key, 0, sizeof(key));
@@ -506,10 +509,14 @@ static void test_wolfTPM2_KeyBlob(TPM_ALG_ID alg)
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, NULL);
     AssertIntEQ(rc, 0);
 
-    if (alg == TPM_ALG_ECC)
+    if (alg == TPM_ALG_ECC) {
         handle = TPM2_DEMO_STORAGE_KEY_HANDLE;
-    else /* RSA */
+        filename = "keyblob_ecc.bin";
+    }
+    else { /* RSA */
         handle = TPM2_DEMO_STORAGE_EC_KEY_HANDLE;
+        filename = "keyblob_rsa.bin";
+    }
 
     /* Load or create the SRK */
     rc = wolfTPM2_ReadPublicKey(&dev, &srk, handle);
@@ -527,7 +534,7 @@ static void test_wolfTPM2_KeyBlob(TPM_ALG_ID alg)
         rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
             TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
             TPMA_OBJECT_decrypt | TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
-            TPM_ECC_NIST_P256, TPM_ALG_NULL);
+            TPM_ECC_NIST_P384, TPM_ALG_NULL);
     }
     else { /* RSA */
         rc = wolfTPM2_GetKeyTemplate_RSA(&publicTemplate,
@@ -536,6 +543,7 @@ static void test_wolfTPM2_KeyBlob(TPM_ALG_ID alg)
     }
     AssertIntEQ(rc, 0);
 
+#if 0
     /* Create key under SRK and get encrypted private and public from TPM */
     rc = wolfTPM2_CreateKey(&dev, &key, &srk.handle, &publicTemplate,
         (byte*)gKeyAuth, sizeof(gKeyAuth)-1);
@@ -560,6 +568,12 @@ static void test_wolfTPM2_KeyBlob(TPM_ALG_ID alg)
     AssertIntGT(rc, 0);
     blob.size = rc;
 
+    writeBin(filename, blob.buffer, blob.size);
+#else
+    blob.size = sizeof(blob.buffer);
+    readBin(filename, blob.buffer, (word32*)&blob.size);
+#endif
+
     /* Reset the originally created key */
     XMEMSET(&key, 0, sizeof(key));
 
@@ -572,6 +586,8 @@ static void test_wolfTPM2_KeyBlob(TPM_ALG_ID alg)
     /* Load key to TPM and get temp handle */
     rc = wolfTPM2_LoadKey(&dev, &key, &srk.handle);
     AssertIntEQ(rc, 0);
+
+    TPM2_PrintPublicArea(&key.pub);
 
     wolfTPM2_UnloadHandle(&dev, &key.handle);
     wolfTPM2_UnloadHandle(&dev, &srk.handle);
