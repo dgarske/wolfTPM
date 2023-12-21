@@ -177,8 +177,9 @@ int TPM2_TIS_Read(TPM2_CTX* ctx, word32 addr, byte* result,
 {
     int rc;
 #ifndef WOLFTPM_ADV_IO
-    byte txBuf[MAX_SPI_FRAMESIZE+TPM_TIS_HEADER_SZ];
-    byte rxBuf[MAX_SPI_FRAMESIZE+TPM_TIS_HEADER_SZ];
+    word32 buffer[(MAX_SPI_FRAMESIZE+TPM_TIS_HEADER_SZ)/sizeof(word32)];
+    byte* txBuf = (byte*)buffer;
+    byte* rxBuf = (byte*)buffer;
 #endif
 
     if (ctx == NULL || result == NULL || len == 0 || len > MAX_SPI_FRAMESIZE)
@@ -191,12 +192,11 @@ int TPM2_TIS_Read(TPM2_CTX* ctx, word32 addr, byte* result,
 #ifdef WOLFTPM_ADV_IO
     rc = ctx->ioCb(ctx, TPM_TIS_READ, addr, result, len, ctx->userCtx);
 #else
+    XMEMSET(buffer, 0, sizeof(buffer));
     txBuf[0] = TPM_TIS_READ | ((len & 0xFF) - 1);
     txBuf[1] = (addr>>16) & 0xFF;
     txBuf[2] = (addr>>8)  & 0xFF;
     txBuf[3] = (addr)     & 0xFF;
-    XMEMSET(&txBuf[TPM_TIS_HEADER_SZ], 0, sizeof(txBuf) - TPM_TIS_HEADER_SZ);
-    XMEMSET(rxBuf, 0, sizeof(rxBuf));
 
     rc = ctx->ioCb(ctx, txBuf, rxBuf, len + TPM_TIS_HEADER_SZ, ctx->userCtx);
 
@@ -215,8 +215,9 @@ int TPM2_TIS_Write(TPM2_CTX* ctx, word32 addr, const byte* value,
 {
     int rc;
 #ifndef WOLFTPM_ADV_IO
-    byte txBuf[MAX_SPI_FRAMESIZE+TPM_TIS_HEADER_SZ];
-    byte rxBuf[MAX_SPI_FRAMESIZE+TPM_TIS_HEADER_SZ];
+    word32 buffer[(MAX_SPI_FRAMESIZE+TPM_TIS_HEADER_SZ)/sizeof(word32)];
+    byte* txBuf = (byte*)buffer;
+    byte* rxBuf = (byte*)buffer;
 #endif
 
     if (ctx == NULL || value == NULL || len == 0 || len > MAX_SPI_FRAMESIZE)
@@ -229,14 +230,12 @@ int TPM2_TIS_Write(TPM2_CTX* ctx, word32 addr, const byte* value,
 #ifdef WOLFTPM_ADV_IO
     rc = ctx->ioCb(ctx, TPM_TIS_WRITE, addr, (byte*)value, len, ctx->userCtx);
 #else
+    XMEMSET(buffer, 0, sizeof(buffer));
     txBuf[0] = TPM_TIS_WRITE | ((len & 0xFF) - 1);
     txBuf[1] = (addr>>16) & 0xFF;
     txBuf[2] = (addr>>8)  & 0xFF;
     txBuf[3] = (addr)     & 0xFF;
     XMEMCPY(&txBuf[TPM_TIS_HEADER_SZ], value, len);
-    XMEMSET(&txBuf[TPM_TIS_HEADER_SZ + len], 0,
-        sizeof(txBuf) - TPM_TIS_HEADER_SZ - len);
-    XMEMSET(rxBuf, 0, sizeof(rxBuf));
 
     rc = ctx->ioCb(ctx, txBuf, rxBuf, len + TPM_TIS_HEADER_SZ, ctx->userCtx);
 #endif

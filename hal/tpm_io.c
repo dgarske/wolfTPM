@@ -112,8 +112,9 @@ int TPM2_IoCb(TPM2_CTX* ctx, INT32 isRead, UINT32 addr,
 {
     int ret = TPM_RC_FAILURE;
 #if !defined(WOLFTPM_I2C) && !defined(WOLFTPM_MMIO)
-    byte txBuf[MAX_SPI_FRAMESIZE+TPM_TIS_HEADER_SZ];
-    byte rxBuf[MAX_SPI_FRAMESIZE+TPM_TIS_HEADER_SZ];
+    word32 buffer[(MAX_SPI_FRAMESIZE+TPM_TIS_HEADER_SZ)/sizeof(word32)];
+    byte* txBuf = (byte*)buffer;
+    byte* rxBuf = (byte*)buffer;
 #endif
 
 #ifdef WOLFTPM_DEBUG_IO
