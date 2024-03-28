@@ -15,7 +15,10 @@ We have included a host side tool `ifx_fw_extract` for extracting the manifest a
 Example usage:
 
 ```sh
+# Build host tool
 make
+
+# Help
 ./ifx_fw_extract --help
 Usage:
   ifx_fw_extract <fw-file>
@@ -44,6 +47,7 @@ The `ifx_fw_update` tool uses the manifest (header) and firmware data file.
 The TPM has a vendor capability for getting the key group id. This is populated in the `WOLFTPM2_CAPS.keyGroupId` when `wolfTPM2_GetCapabilities` is called. This value should match the firmware extract tool `keygroup_id`.
 
 ```sh
+# Help
 ./ifx_fw_update --help
 Infineon Firmware Update Usage:
         ./ifx_fw_update (get info)
@@ -90,7 +94,7 @@ KeyGroupId 0x7, FwCounter 1253 (254 same)
 TPM2_Shutdown failed 304: Unknown
 
 # Reset or power cycle TPM
-./examples/firmware/ifx_fw_update
+./ifx_fw_update
 Infineon Firmware Update Tool
 TPM2: Caps 0x1ae00082, Did 0x001c, Vid 0x15d1, Rid 0x16
 TPM2_Startup pass
