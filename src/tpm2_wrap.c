@@ -7389,7 +7389,7 @@ static int tpm2_ifx_firmware_data(WOLFTPM2_DEV* dev,
         }
     }
 
-    if (rc == 0) {
+    if (rc == TPM_RC_SUCCESS) {
         /* Give the TPM time to start the new firmware */
         XSLEEP_MS(300);
 
@@ -7436,39 +7436,15 @@ int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
 {
     int rc;
     WOLFTPM2_CAPS caps;
-    TPM_ALG_ID hashAlg = TPM_ALG_SHA384; /* use SHA2-384 for manifest hash */
+    TPM_ALG_ID hashAlg;
     uint8_t  manifest_hash[TPM_SHA384_DIGEST_SIZE];
     uint32_t manifest_hash_sz = (uint32_t)sizeof(manifest_hash);
 
     /* check the operational mode */
     rc = wolfTPM2_GetCapabilities(dev, &caps);
-    if (rc == 0) {
-    #ifdef DEBUG_WOLFTPM
-        const char* opModeStr = "Unknown";
-        switch (caps.opMode) {
-            case 0x00:
-                opModeStr = "Normal TPM operational mode";
-                break;
-            case 0x01:
-                opModeStr = "TPM firmware update mode (abandon possible)";
-                break;
-            case 0x02:
-                opModeStr = "TPM firmware update mode (abandon not possible)";
-                break;
-            case 0x03:
-                opModeStr = "After successful update, but before finalize";
-                break;
-            case 0x04:
-                opModeStr = "After finalize or abandon, reboot required";
-                break;
-            default:
-                break;
-        }
-        printf("Oerational mode: %s (0x%x)\n", opModeStr, caps.opMode);
-    #endif
-
+    if (rc == TPM_RC_SUCCESS) {
         if (caps.opMode == 0x03) {
-            /* firmware update is done, just needs finalized */
+            /* firmware update is done, just needs finalized and TPM reset */
         #ifdef DEBUG_WOLFTPM
             printf("Firmware update done, finalizing\n");
         #endif
@@ -7477,26 +7453,29 @@ int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
     }
 
     /* hash the manifest */
+    hashAlg = TPM_ALG_SHA384; /* use SHA2-384 or SHA2-512 for manifest hash */
     rc = wc_Sha384Hash(manifest, manifest_sz, manifest_hash);
-    if (rc == 0) {
+    if (rc == TPM_RC_SUCCESS) {
         rc = tpm2_ifx_firmware_enable_policy(dev);
     }
-    if (rc == 0) {
+    if (rc == TPM_RC_SUCCESS) {
         rc = tpm2_ifx_firmware_start(dev, hashAlg, manifest_hash, manifest_hash_sz);
     }
-    if (rc == 0) {
+    if (rc == TPM_RC_SUCCESS) {
         rc = tpm2_ifx_firmware_manifest(dev, manifest, manifest_sz);
     }
-    if (rc == 0) {
+    if (rc == TPM_RC_SUCCESS) {
         rc = tpm2_ifx_firmware_data(dev, cb, cb_ctx);
     }
-    if (rc == 0) {
+    if (rc == TPM_RC_SUCCESS) {
         rc = tpm2_ifx_firmware_final(dev);
     }
-
-    (void)cb;
-    (void)cb_ctx;
-
+#ifdef DEBUG_WOLFTPM
+    if (rc != TPM_RC_SUCCESS) {
+        printf("Firmware update failed 0x%x: %s\n",
+            rc, TPM2_GetRCString(rc));
+    }
+#endif
     return rc;
 }
 

@@ -69,6 +69,31 @@ static int TPM2_IFX_FwData_Cb(uint8_t* data, uint32_t data_req_sz,
     return data_req_sz;
 }
 
+static const char* TPM2_IFX_GetOpModeStr(int opMode)
+{
+    const char* opModeStr = "Unknown";
+    switch (opMode) {
+        case 0x00:
+            opModeStr = "Normal TPM operational mode";
+            break;
+        case 0x01:
+            opModeStr = "TPM firmware update mode (abandon possible)";
+            break;
+        case 0x02:
+            opModeStr = "TPM firmware update mode (abandon not possible)";
+            break;
+        case 0x03:
+            opModeStr = "After successful update, but before finalize";
+            break;
+        case 0x04:
+            opModeStr = "After finalize or abandon, reboot required";
+            break;
+        default:
+            break;
+    }
+    return opModeStr;
+}
+
 static int TPM2_IFX_PrintInfo(WOLFTPM2_DEV* dev)
 {
     int rc;
@@ -78,8 +103,10 @@ static int TPM2_IFX_PrintInfo(WOLFTPM2_DEV* dev)
         printf("Mfg %s (%d), Vendor %s, Fw %u.%u (0x%x)\n",
             caps.mfgStr, caps.mfg, caps.vendorStr, caps.fwVerMajor,
             caps.fwVerMinor, caps.fwVerVendor);
-        printf("\tKeyGroupId 0x%x, OpMode 0x%x, FwCounter %d (%d same)\n",
-            caps.keyGroupId, caps.opMode, caps.fwCounter, caps.fwCounterSame);
+        printf("Oerational mode: %s (0x%x)\n",
+            TPM2_IFX_GetOpModeStr(caps.opMode), caps.opMode);
+        printf("KeyGroupId 0x%x, FwCounter %d (%d same)\n",
+            caps.keyGroupId, caps.fwCounter, caps.fwCounterSame);
         if (caps.keyGroupId == 0) {
             printf("Error getting key group id from TPM!\n");
             rc = -1;
@@ -147,7 +174,9 @@ int TPM2_IFX_Firmware_Update(void* userCtx, int argc, char *argv[])
     }
 
     if (manifest_file == NULL || firmware_file == NULL) {
-        printf("Manifest file or firmware file arguments missing!\n");
+        if (argc > 1) {
+            printf("Manifest file or firmware file arguments missing!\n");
+        }
         goto exit;
     }
 
