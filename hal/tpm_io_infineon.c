@@ -44,8 +44,8 @@
        defined(WOLFTPM_WINAPI) )
 
 #ifdef WOLFTPM_I2C
-    #ifndef TPM_I2C_TIMEOUT_MS
-        #define TPM_I2C_TIMEOUT_MS 250
+    #ifndef TPM_I2C_TRIES
+        #define TPM_I2C_TRIES 10
     #endif
     #ifndef TPM2_I2C_ADDR
         #define TPM2_I2C_ADDR 0x2e
@@ -59,22 +59,41 @@
         int ret = TPM_RC_FAILURE;
         cy_rslt_t result;
         cyhal_i2c_t* i2c = (cyhal_i2c_t*)userCtx;
+        int timeout = TPM_I2C_TRIES;
         byte buf[1];
 
         /* TIS layer should never provide a buffer larger than this,
-           but double check for good coding practice */
+         * but double check for good coding practice */
         if (i2c == NULL || len > MAX_SPI_FRAMESIZE)
             return BAD_FUNC_ARG;
 
         buf[0] = (reg & 0xFF); /* convert to simple 8-bit address for I2C */
 
-        result = cyhal_i2c_master_read(i2c, TPM2_I2C_ADDR, buf, sizeof(buf),
-            TPM_I2C_TIMEOUT_MS, true);
+        /* The I2C takes about 80us to wake up and will NAK until it is ready */
+        do {
+            /* Write address to read from - retry until ack  */
+            result = cyhal_i2c_master_write(i2c, TPM2_I2C_ADDR, buf, sizeof(buf),
+                0, true);
+            /* for read we always need this guard time (success wake or real read) */
+            XSLEEP_MS(1); /* guard time - should be 250us */
+        } while (result != CY_RSLT_SUCCESS && --timeout > 0);
+
+        if (result == CY_RSLT_SUCCESS) {
+            timeout = TPM_I2C_TRIES;
+            do {
+                result = cyhal_i2c_master_read(i2c, TPM2_I2C_ADDR, data, len,
+                    0, true);
+                if (result != CY_RSLT_SUCCESS) {
+                    XSLEEP_MS(1); /* guard time - should be 250us */
+                }
+            } while (result != CY_RSLT_SUCCESS && --timeout > 0);
+        }
         if (result == CY_RSLT_SUCCESS) {
             ret = TPM_RC_SUCCESS;
         }
         else {
-            printf("CyHAL I2C Read failure %d\n", (int)result);
+            printf("CyHAL I2C Read failure %d (tries %d)\n",
+                (int)result, TPM_I2C_TRIES - timeout);
         }
         return ret;
     }
@@ -84,10 +103,11 @@
         int ret = TPM_RC_FAILURE;
         cy_rslt_t result;
         cyhal_i2c_t* i2c = (cyhal_i2c_t*)userCtx;
+        int timeout = TPM_I2C_TRIES;
         byte buf[MAX_SPI_FRAMESIZE+1];
 
         /* TIS layer should never provide a buffer larger than this,
-           but double check for good coding practice */
+         * but double check for good coding practice */
         if (i2c == NULL || len > MAX_SPI_FRAMESIZE)
             return BAD_FUNC_ARG;
 
@@ -95,8 +115,14 @@
         buf[0] = (reg & 0xFF); /* convert to simple 8-bit address for I2C */
         XMEMCPY(buf + 1, data, len);
 
-        result = cyhal_i2c_master_write(i2c, TPM2_I2C_ADDR, buf, len+1,
-            TPM_I2C_TIMEOUT_MS, true);
+        /* The I2C takes about 80us to wake up and will NAK until it is ready */
+        do {
+            result = cyhal_i2c_master_write(i2c, TPM2_I2C_ADDR, buf, len+1,
+                0, true);
+            if (result != CY_RSLT_SUCCESS) {
+                XSLEEP_MS(1); /* guard time - should be 250us */
+            }
+        } while (result != CY_RSLT_SUCCESS && --timeout > 0);
         if (result == CY_RSLT_SUCCESS) {
             ret = TPM_RC_SUCCESS;
         }
