@@ -4523,7 +4523,7 @@ int wolfTPM2_NVReadCert(WOLFTPM2_DEV* dev, TPM_HANDLE handle,
 
     /* Perform read of NV without auth password */
     nv.handle.hndl = handle;
-    rc = wolfTPM2_NVReadAuth(dev, &nv, handle, buffer, len, 0);
+    rc = wolfTPM2_NVReadAuth(dev, &nv, handle, buffer, (word32*)len, 0);
     return rc;
 }
 
