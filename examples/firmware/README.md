@@ -60,7 +60,7 @@ Infineon Firmware Update Tool
 TPM2: Caps 0x1ae00082, Did 0x001c, Vid 0x15d1, Rid 0x16
 TPM2_Startup pass
 Mfg IFX (1), Vendor SLB9673, Fw 26.13 (0x456a)
-Oerational mode: Normal TPM operational mode (0x0)
+Operational mode: Normal TPM operational mode (0x0)
 KeyGroupId 0x7, FwCounter 1254 (255 same)
 
 # Run with manifest and firmware files
@@ -71,7 +71,7 @@ Infineon Firmware Update Tool
 TPM2: Caps 0x1ae00082, Did 0x001c, Vid 0x15d1, Rid 0x16
 TPM2_Startup pass
 Mfg IFX (1), Vendor SLB9673, Fw 26.13 (0x456a)
-Oerational mode: Normal TPM operational mode (0x0)
+Operational mode: Normal TPM operational mode (0x0)
 KeyGroupId 0x7, FwCounter 1254 (255 same)
 TPM2_StartAuthSession: handle 0x3000000, algorithm NULL
 TPM2_FlushContext: Closed handle 0x3000000
@@ -89,7 +89,7 @@ Firmware data chunk offset 932864
 Firmware data chunk offset 933888
 Firmware data done
 Mfg IFX (1), Vendor , Fw 0.0 (0x0)
-Oerational mode: After finalize or abandon, reboot required (0x4)
+Operational mode: After finalize or abandon, reboot required (0x4)
 KeyGroupId 0x7, FwCounter 1253 (254 same)
 TPM2_Shutdown failed 304: Unknown
 
@@ -99,6 +99,6 @@ Infineon Firmware Update Tool
 TPM2: Caps 0x1ae00082, Did 0x001c, Vid 0x15d1, Rid 0x16
 TPM2_Startup pass
 Mfg IFX (1), Vendor SLB9673, Fw 26.13 (0x456a)
-Oerational mode: Normal TPM operational mode (0x0)
+Operational mode: Normal TPM operational mode (0x0)
 KeyGroupId 0x7, FwCounter 1253 (254 same)
 ```

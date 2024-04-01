@@ -1,6 +1,6 @@
 /* tpm_io_infineon.c
  *
- * Copyright (C) 2006-2022 wolfSSL Inc.
+ * Copyright (C) 2006-2024 wolfSSL Inc.
  *
  * This file is part of wolfTPM.
  *
@@ -19,7 +19,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-/* This example shows IO interfaces for Infineon TriCore hardware:
+/* This example shows IO interfaces for Infineon CyHal or TriCore hardware:
+ * - PSoC6 CyHal set automatically with `CY_USING_HAL`.
  * - TC2XX/TC3XX using macro: `WOLFTPM_INFINEON_TRICORE`.
  */
 
@@ -42,12 +43,105 @@
        defined(WOLFTPM_SWTPM) ||     \
        defined(WOLFTPM_WINAPI) )
 
-/* Use the max speed by default - see tpm2_types.h for chip specific max values */
-#ifndef TPM2_SPI_HZ
-    #define TPM2_SPI_HZ TPM2_SPI_MAX_HZ
-#endif
+#ifdef WOLFTPM_I2C
+    #ifndef TPM_I2C_TIMEOUT_MS
+        #define TPM_I2C_TIMEOUT_MS 250
+    #endif
+    #ifndef TPM2_I2C_ADDR
+        #define TPM2_I2C_ADDR 0x2e
+    #endif
 
-#if defined(WOLFTPM_INFINEON_TRICORE)
+    #if defined(CY_USING_HAL)
+    #include "cyhal_i2c.h"
+
+    static int tpm_ifx_i2c_read(void* userCtx, word32 reg, byte* data, int len)
+    {
+        int ret = TPM_RC_FAILURE;
+        cy_rslt_t result;
+        cyhal_i2c_t* i2c = (cyhal_i2c_t*)userCtx;
+        byte buf[1];
+
+        /* TIS layer should never provide a buffer larger than this,
+           but double check for good coding practice */
+        if (i2c == NULL || len > MAX_SPI_FRAMESIZE)
+            return BAD_FUNC_ARG;
+
+        buf[0] = (reg & 0xFF); /* convert to simple 8-bit address for I2C */
+
+        result = cyhal_i2c_master_read(i2c, TPM2_I2C_ADDR, buf, sizeof(buf),
+            TPM_I2C_TIMEOUT_MS, true);
+        if (result == CY_RSLT_SUCCESS) {
+            ret = TPM_RC_SUCCESS;
+        }
+        else {
+            printf("CyHAL I2C Read failure %d\n", (int)result);
+        }
+        return ret;
+    }
+
+    static int tpm_ifx_i2c_write(void* userCtx, word32 reg, byte* data, int len)
+    {
+        int ret = TPM_RC_FAILURE;
+        cy_rslt_t result;
+        cyhal_i2c_t* i2c = (cyhal_i2c_t*)userCtx;
+        byte buf[MAX_SPI_FRAMESIZE+1];
+
+        /* TIS layer should never provide a buffer larger than this,
+           but double check for good coding practice */
+        if (i2c == NULL || len > MAX_SPI_FRAMESIZE)
+            return BAD_FUNC_ARG;
+
+        /* Build packet with TPM register and data */
+        buf[0] = (reg & 0xFF); /* convert to simple 8-bit address for I2C */
+        XMEMCPY(buf + 1, data, len);
+
+        result = cyhal_i2c_master_write(i2c, TPM2_I2C_ADDR, buf, len+1,
+            TPM_I2C_TIMEOUT_MS, true);
+        if (result == CY_RSLT_SUCCESS) {
+            ret = TPM_RC_SUCCESS;
+        }
+        else {
+            printf("CyHAL I2C Write failure %d\n", (int)result);
+        }
+        return ret;
+    }
+
+    int TPM2_IoCb_Infineon_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
+        byte* buf, word16 size, void* userCtx)
+    {
+        int ret = TPM_RC_FAILURE;
+        if (userCtx != NULL) {
+            if (isRead)
+                ret = tpm_ifx_i2c_read(userCtx, addr, buf, size);
+            else
+                ret = tpm_ifx_i2c_write(userCtx, addr, buf, size);
+        }
+        (void)ctx;
+        return ret;
+    }
+
+    #else
+        #error Infineon I2C support on this platform not supported yet
+    #endif /* CY_USING_HAL or WOLFTPM_INFINEON_TRICORE */
+
+#else /* SPI */
+
+    #ifndef TPM2_SPI_HZ
+        /* Use the max speed by default
+         * See tpm2_types.h for chip specific max values */
+        #define TPM2_SPI_HZ TPM2_SPI_MAX_HZ
+    #endif
+    #ifdef WOLFTPM_CHECK_WAIT_STATE
+        #error SPI check wait state logic not supported
+    #endif
+
+    #if defined(CY_USING_HAL)
+    int TPM2_IoCb_Infineon_SPI(TPM2_CTX* ctx, const byte* txBuf,
+        byte* rxBuf, word16 xferSz, void* userCtx)
+    {
+
+    }
+    #elif defined(WOLFTPM_INFINEON_TRICORE)
 
     #include <Ifx_Types.h>
     #include <Qspi/SpiMaster/IfxQspi_SpiMaster.h>
@@ -59,10 +153,6 @@
         byte* rxBuf, word16 xferSz, void* userCtx)
     {
         int ret = TPM_RC_FAILURE;
-
-    #ifdef WOLFTPM_CHECK_WAIT_STATE
-        #error SPI check wait state logic not supported
-    #endif
 
         /* wait for SPI not busy */
         while (IfxQspi_SpiMaster_getStatus(&spiMasterChannel) ==
@@ -79,8 +169,11 @@
 
         return ret;
     }
+    #else
+        #error Infineon I2C support on this platform not supported yet
+    #endif /* CY_USING_HAL or WOLFTPM_INFINEON_TRICORE */
+#endif /* SPI or I2C */
 
-#endif /* WOLFTPM_INFINEON_TRICORE */
 #endif /* !(WOLFTPM_LINUX_DEV || WOLFTPM_SWTPM || WOLFTPM_WINAPI) */
 #endif /* WOLFTPM_INCLUDE_IO_FILE */
 

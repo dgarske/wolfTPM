@@ -103,7 +103,7 @@ static int TPM2_IFX_PrintInfo(WOLFTPM2_DEV* dev)
         printf("Mfg %s (%d), Vendor %s, Fw %u.%u (0x%x)\n",
             caps.mfgStr, caps.mfg, caps.vendorStr, caps.fwVerMajor,
             caps.fwVerMinor, caps.fwVerVendor);
-        printf("Oerational mode: %s (0x%x)\n",
+        printf("Operational mode: %s (0x%x)\n",
             TPM2_IFX_GetOpModeStr(caps.opMode), caps.opMode);
         printf("KeyGroupId 0x%x, FwCounter %d (%d same)\n",
             caps.keyGroupId, caps.fwCounter, caps.fwCounterSame);

@@ -1213,7 +1213,7 @@ static int wolfTPM2_EncryptSecret_ECC(WOLFTPM2_DEV* dev, const WOLFTPM2_KEY* tpm
     TPM2B_ECC_POINT pubPoint, secretPoint;
     ecc_point r[1];
     mp_int prime, a;
-    word32 keySz;
+    word32 keySz = 0;
 
     publicArea = &tpmKey->pub.publicArea;
     XMEMSET(&rng, 0, sizeof(rng));
@@ -7302,7 +7302,7 @@ static int tpm2_ifx_firmware_start(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
 static int tpm2_ifx_firmware_manifest(WOLFTPM2_DEV* dev,
     uint8_t* manifest, uint32_t manifest_sz)
 {
-    int rc;
+    int rc = TPM_RC_FAILURE;
     uint32_t offset, chunk_sz;
     uint8_t state; /* 1=start, 2=more, 0=done */
 
