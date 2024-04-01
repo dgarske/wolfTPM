@@ -7263,6 +7263,7 @@ static int tpm2_ifx_firmware_start(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
         if (rc == TPM_RC_SUCCESS) {
             /* build command for manifest header */
             uint16_t val16;
+            /* max cmd: type (1) + data sz (2) + hash alg (2) + max digest (64) */
             uint8_t cmd[1 + 2 + 2 + TPM_SHA512_DIGEST_SIZE];
             cmd[0] = 0x01; /* type */
             val16 = be16_to_cpu(manifest_hash_sz + 2);
@@ -7308,6 +7309,7 @@ static int tpm2_ifx_firmware_manifest(WOLFTPM2_DEV* dev,
 
     (void)dev;
     for (offset = 0; offset < manifest_sz; offset += chunk_sz) {
+        /* max cmd: type (1) + chunk sz (2) + max chunk (1024) */
         uint8_t cmd[1 + 2 + IFX_FW_MAX_CHUNK_SZ];
         uint16_t val16;
 

@@ -1,12 +1,12 @@
 # TPM Firmware Update Support
 
-Currently wolfTPM supports firmare update capability for the Infineon SLB9672 (SPI) and SLB9673 (I2C) TPM 2.0 modules. Infienon has open sourced their firmware update.
+Currently wolfTPM supports firmware update capability for the Infineon SLB9672 (SPI) and SLB9673 (I2C) TPM 2.0 modules. Infineon has open sourced their firmware update.
 
 ## Infineon Firmware
 
 ### Extracting the firmware
 
-Infienon releases firmware as a .bin file (example: TPM20_15.23.17664.0_R1.BIN).
+Infineon releases firmware as a .bin file (example: TPM20_15.23.17664.0_R1.BIN).
 
 The .bin contains a 16-byte GUID header, at least one manifest based on key group and the firmware. A typical manifest is 3KB and firmware is 920KB.
 
