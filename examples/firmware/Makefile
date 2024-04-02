@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-Wall
+CFLAGS=-Wall -Werror -Wextra -g
 LIBS=
 
 all: clean ifx_fw_extract

@@ -25,7 +25,6 @@
  * manifest and data files from a supplied .bin
  */
 
-
 #define _DEFAULT_SOURCE
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -82,6 +81,27 @@
     dest = be32toh(dest); \
     off += sizeof(dest); \
 }
+
+
+/* macros for stdio */
+#define XFILE      FILE*
+#define XFOPEN     fopen
+#define XFSEEK     fseek
+#define XFTELL     ftell
+#define XREWIND    rewind
+#define XFREAD     fread
+#define XFWRITE    fwrite
+#define XFCLOSE    fclose
+#define XSEEK_END  SEEK_END
+#define XBADFILE   NULL
+#define XFGETS     fgets
+#define XFEOF      feof
+
+/* internal error codes */
+#define MEMORY_E     -125  /* out of memory error */
+#define BUFFER_E     -132  /* output buffer too small or input too large */
+#define BAD_FUNC_ARG -173  /* Bad function argument provided */
+
 
 static int extractFW(
     uint8_t *fw, size_t fw_size, uint32_t keygroup_id,
@@ -173,77 +193,74 @@ static int extractFW(
     return 0;
 }
 
-static int readfile(const char *filename, uint8_t **buffer, size_t *size)
+static int readfile(const char* fname, uint8_t** buf, size_t* bufLen)
 {
-    int rc;
-    int fd;
-    struct stat sb;
+    int ret = 0;
+    ssize_t fileSz, readLen;
+    XFILE fp;
 
-    printf("Reading %s\n", filename);
+    if (fname == NULL || buf == NULL || bufLen == NULL)
+        return BAD_FUNC_ARG;
 
-    fd = open(filename, O_RDONLY);
-    if (fd == -1) {
-        perror("open");
-        return fd;
-    }
-    rc = fstat(fd, &sb);
-    if (rc == -1) {
-        perror("fstat");
-        goto close;
+    /* open file (read-only binary) */
+    fp = XFOPEN(fname, "rb");
+    if (fp == XBADFILE) {
+        fprintf(stderr, "Error loading %s\n", fname);
+        return BUFFER_E;
     }
 
-    uint8_t *addr = mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
-    if (addr == MAP_FAILED) {
-        perror("mmap");
-        goto close;
+    XFSEEK(fp, 0, XSEEK_END);
+    fileSz = XFTELL(fp);
+    XREWIND(fp);
+    if (fileSz > 0) {
+        if (*buf == NULL) {
+            *buf = (uint8_t*)malloc(fileSz);
+            if (*buf == NULL)
+                ret = MEMORY_E;
+        }
+        else if (*buf != NULL && fileSz > (ssize_t)*bufLen) {
+            ret = BUFFER_E;
+        }
+        *bufLen = (size_t)fileSz;
+        if (ret == 0) {
+            readLen = XFREAD(*buf, 1, *bufLen, fp);
+            ret = (readLen == (ssize_t)*bufLen) ? 0 : -1;
+        }
     }
-
-    *buffer = malloc(sb.st_size);
-    if (!buffer) {
-        perror("malloc");
-        goto unmap;
+    else {
+        ret = BUFFER_E;
     }
-    memcpy(*buffer, addr, sb.st_size);
-    *size = sb.st_size;
-
-unmap:
-    munmap(addr, sb.st_size);
-
-close:
-    close(fd);
-
-    return 0;
+    XFCLOSE(fp);
+    return ret;
 }
 
-static int writefile(const char *filename, uint8_t *buffer, size_t size)
+static int writefile(const char* filename, const uint8_t *buf, size_t bufSz)
 {
-    int fd;
-    ssize_t ret;
+    int rc = -1;
+    XFILE fp;
+    size_t fileSz = 0;
 
-    printf("Writing %s\n", filename);
+    if (filename == NULL || buf == NULL)
+        return BAD_FUNC_ARG;
 
-    fd = open(filename, (O_WRONLY | O_CREAT | O_EXCL), 0644);
-    if (fd == -1) {
-        perror("open");
-        return fd;
+    fp = XFOPEN(filename, "wb");
+    if (fp != XBADFILE) {
+        fileSz = XFWRITE(buf, 1, bufSz, fp);
+        /* sanity check */
+        if (fileSz == bufSz) {
+            rc = 0;
+        }
+        printf("Wrote %d bytes to %s\n", (int)fileSz, filename);
+        XFCLOSE(fp);
     }
 
-    ret = write(fd, buffer, size);
-    if (ret < 0 || ((size_t) ret) != size) {
-        perror("write");
-        goto close;
-    }
-
-close:
-    close(fd);
-
-    return 0;
+    return rc;
 }
 
 int main(int argc, char **argv)
 {
     int rc;
-    uint8_t *manifest = NULL, *data = NULL, *fw;
+    uint8_t *manifest = NULL, *data = NULL, *fw = NULL;
     size_t manifest_size, data_size, fw_size;
     uint32_t keygroup_id = 0;
 
@@ -260,13 +277,15 @@ int main(int argc, char **argv)
     if (argc >= 2) {
         if (readfile(argv[1], &fw, &fw_size) < 0) {
             LOG("Cannot read FW file.");
-            return 1;
+            rc = EXIT_FAILURE;
+            goto exit;
         }
 
         if (argc >= 3) {
             if (sscanf(argv[2], "0x%08x", &keygroup_id) != 1 && sscanf(argv[2], "%08x", &keygroup_id) != 1) {
                 LOG("Cannot read keygroup_id.");
-                return 1;
+                rc = EXIT_FAILURE;
+                goto exit;
             }
         }
         rc = extractFW(fw, fw_size, keygroup_id,
@@ -274,22 +293,29 @@ int main(int argc, char **argv)
                        &data, &data_size);
         if (rc != 0) {
             printf(__FILE__":%i: Received error 0x%08x\n", __LINE__, rc);
-            goto errorout;
+            goto exit;
         }
 
         if (argc >= 5) {
-            if (writefile(argv[3], manifest, manifest_size) < 0)
-                return 1;
-            if (writefile(argv[4], data, data_size) < 0)
-                return 1;
+            if (writefile(argv[3], manifest, manifest_size) < 0) {
+                rc = EXIT_FAILURE;
+                goto exit;
+            }
+            if (writefile(argv[4], data, data_size) < 0) {
+                rc = EXIT_FAILURE;
+                goto exit;
+            }
         }
-        return 0;
+        rc = 0;
     }
     else {
         printf("Bad arguments.\n");
-        goto errorout;
+        rc = EXIT_FAILURE;
+        goto exit;
     }
 
-errorout:
-    return EXIT_FAILURE;
+exit:
+    if (fw != NULL)
+        free(fw);
+    return rc;
 }
