@@ -50,6 +50,7 @@ static void usage(void)
     printf("./examples/pcr/extend [pcr] [filename]\n");
     printf("* pcr: PCR index between 0-23 (default %d)\n", TPM2_TEST_PCR);
     printf("* filename: points to file(data) to measure\n");
+    printf("* -aes/xor: Use Parameter Encryption\n");
     printf("\tIf wolfTPM is built with --disable-wolfcrypt the file\n"
            "\tmust contain SHA256 digest ready for extend operation.\n"
            "\tOtherwise, the extend tool computes the hash using wolfcrypt.\n");
@@ -61,6 +62,8 @@ int TPM2_PCR_Extend_Test(void* userCtx, int argc, char *argv[])
 {
     int i, j, pcrIndex = TPM2_TEST_PCR, rc = -1;
     WOLFTPM2_DEV dev;
+    WOLFTPM2_SESSION tpmSession;
+    TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     /* Arbitrary user data provided through a file */
     const char *filename = "input.data";
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES) && \
@@ -92,24 +95,39 @@ int TPM2_PCR_Extend_Test(void* userCtx, int argc, char *argv[])
             usage();
             return 0;
         }
-
-        /* Advanced usage */
-        if (argv[1][0] != '-') {
-            if (pcrIndex < 0 || pcrIndex > 23 || *argv[1] < '0' || *argv[1] > '9') {
-                printf("PCR index is out of range (0-23)\n");
-                usage();
-                return 0;
+        while (argc > 1) {
+            if (argv[argc-1][0] == '-') {
+                if (XSTRCMP(argv[argc-1], "-aes") == 0) {
+                    paramEncAlg = TPM_ALG_CFB;
+                }
+                else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
+                    paramEncAlg = TPM_ALG_XOR;
+                }
             }
-            pcrIndex = XATOI(argv[1]);
+            else {
+                if (argv[argc-1][0] >= '0' && argv[argc-1][0] <= '9') {
+                    pcrIndex = XATOI(argv[argc-1]);
+                }
+                else {
+                    filename = argv[argc-1];
+                }
+            }
+            argc--;
         }
-
-        if (argc >= 3 && argv[2][0] != '-')
-            filename = argv[2];
     }
 
-    printf("Demo how to extend data into a PCR (TPM2.0 measurement)\n");
+    XMEMSET(&tpmSession, 0, sizeof(tpmSession));
+
+    printf("PCR Extend Utility (TPM2.0 measurement)\n");
     printf("\tData file: %s\n", filename);
     printf("\tPCR Index: %d\n", pcrIndex);
+    printf("\tUse Parameter Encryption: %s\n", TPM2_GetAlgName(paramEncAlg));
+
+    if (pcrIndex < 0 || pcrIndex > 23) {
+        printf("PCR index is out of range (0-23)\n");
+        usage();
+        return 0;
+    }
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
@@ -117,6 +135,22 @@ int TPM2_PCR_Extend_Test(void* userCtx, int argc, char *argv[])
         goto exit;
     }
     printf("wolfTPM2_Init: success\n");
+
+    if (paramEncAlg != TPM_ALG_NULL) {
+        /* Start an authenticated session (salted / unbound) with parameter
+         * encryption */
+        rc = wolfTPM2_StartSession(&dev, &tpmSession, NULL, NULL,
+            TPM_SE_HMAC, paramEncAlg);
+        if (rc != 0) goto exit;
+        printf("TPM2_StartAuthSession: sessionHandle 0x%x\n",
+            (word32)tpmSession.handle.hndl);
+
+        /* set session for authorization of the storage key */
+        rc = wolfTPM2_SetAuthSession(&dev, 1, &tpmSession,
+            (TPMA_SESSION_decrypt | TPMA_SESSION_encrypt |
+             TPMA_SESSION_continueSession));
+        if (rc != 0) goto exit;
+    }
 
     /* Prepare PCR Extend command */
     XMEMSET(&cmdIn.pcrExtend, 0, sizeof(cmdIn.pcrExtend));
@@ -188,6 +222,7 @@ int TPM2_PCR_Extend_Test(void* userCtx, int argc, char *argv[])
 
 exit:
 
+    wolfTPM2_UnloadHandle(&dev, &tpmSession.handle);
     wolfTPM2_Cleanup(&dev);
 
     return rc;

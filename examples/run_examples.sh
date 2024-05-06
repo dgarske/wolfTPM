@@ -378,6 +378,9 @@ RESULT=$?
 ./examples/pcr/extend 16 /usr/bin/zip >> run.out 2>&1
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "pcr extend file failed! $RESULT" && exit 1
+./examples/pcr/extend -aes 16 /usr/bin/zip >> run.out 2>&1
+RESULT=$?
+[ $RESULT -ne 0 ] && echo -e "pcr extend file param enc failed! $RESULT" && exit 1
 ./examples/pcr/quote 16 zip.quote >> run.out 2>&1
 RESULT=$?
 [ $RESULT -ne 0 ] && echo -e "pcr quote failed! $RESULT" && exit 1
