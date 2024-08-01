@@ -302,7 +302,7 @@ sudo chgrp wolftpm /dev/tpm0
 KERNEL=="tpm[0-9]*", TAG+="systemd", MODE="0660", GROUP="wolftpm"
 ```
 
-4) Reboot or reload rules: `sudo udevadm control -R`
+4) Reboot to update the device rules.
 
 
 ### Building for SWTPM
