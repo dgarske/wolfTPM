@@ -2986,6 +2986,13 @@ TPM_RC TPM2_GetTime(GetTime_In* in, GetTime_Out* out)
     return rc;
 }
 
+#if 0
+TPM_RC TPM2_CertifyX509(CertifyX509_In* in, CertifyX509_Out* out)
+{
+    /* TODO TPM_CC_CertifyX509 */
+}
+#endif
+
 TPM_RC TPM2_Commit(Commit_In* in, Commit_Out* out)
 {
     TPM_RC rc;

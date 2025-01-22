@@ -243,7 +243,12 @@ typedef enum {
     TPM_CC_CreateLoaded             = 0x00000191,
     TPM_CC_PolicyAuthorizeNV        = 0x00000192,
     TPM_CC_EncryptDecrypt2          = 0x00000193,
-    TPM_CC_LAST                     = TPM_CC_EncryptDecrypt2,
+    TPM_CC_AC_GetCapability         = 0x00000194,
+    TPM_CC_AC_Send                  = 0x00000195,
+    TPM_CC_Policy_AC_SendSelect     = 0x00000196,
+    TPM_CC_CertifyX509              = 0x00000197,
+    TPM_CC_ACT_SetTimeout           = 0x00000198,
+    TPM_CC_LAST                     = TPM_CC_ACT_SetTimeout,
 
     CC_VEND                         = 0x20000000,
     TPM_CC_Vendor_TCG_Test          = CC_VEND + 0x0000,
@@ -2407,6 +2412,20 @@ typedef struct {
     TPMT_SIGNATURE signature;
 } GetTime_Out;
 WOLFTPM_API TPM_RC TPM2_GetTime(GetTime_In* in, GetTime_Out* out);
+
+typedef struct {
+    TPMI_DH_OBJECT objectHandle;
+    TPMI_DH_OBJECT signHandle;
+    TPM2B_DATA  reserved;
+    TPMT_SIG_SCHEME inScheme;
+    TPM2B_MAX_BUFFER partialCertificate;
+} CertifyX509_In;
+typedef struct {
+    TPM2B_MAX_BUFFER addedToCertificate;
+    TPM2B_DIGEST tbsDigest;
+    TPMT_SIGNATURE signature;
+} CertifyX509_Out;
+WOLFTPM_API TPM_RC TPM2_CertifyX509(CertifyX509_In* in, CertifyX509_Out* out);
 
 typedef struct {
     TPMI_DH_OBJECT signHandle;
