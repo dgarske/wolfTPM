@@ -142,6 +142,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     int bAIK = 1;
     int keyBits = 256;
     const char* uniqueStr = NULL;
+    const char* authStr = NULL;
     const char *outputFile = OUTPUT_FILE;
     const char *ekPubFile = EK_PUB_FILE;
     const char *srkPubFile = SRK_PUB_FILE;
