@@ -27,7 +27,6 @@ extern "C" {
 #endif
 
 /* -- WOLFTPM ZEPHYR SETTINGS -- */
-
 #undef  WOLFTPM_USER_SETTINGS
 #define WOLFTPM_USER_SETTINGS
 
@@ -41,10 +40,12 @@ extern "C" {
 #undef  WOLFSSL_USER_SETTINGS
 #define WOLFSSL_USER_SETTINGS
 
-#undef  WOLF_CRYPT_SETTINGS_H
-#define WOLF_CRYPT_SETTINGS_H
-
-#if 0
+#ifdef CONFIG_WOLFTPM_I2C
+    #define WOLFTPM_I2C
+    #define WOLFTPM_ADV_IO
+#elif defined(CONFIG_WOLFTPM_SPI)
+    /* default */
+#else
     #undef  WOLFTPM_SWTPM
     #define WOLFTPM_SWTPM
 #endif
@@ -83,9 +84,6 @@ extern "C" {
 
 /* No threading or file system */
 #define SINGLE_THREADED
-
-/* Enable crypto callbacks */
-#define WOLF_CRYPTO_CB
 
 #ifdef USE_LOW_RESOURCE
     /* Single Precision math for RSA 2048 only (small) */

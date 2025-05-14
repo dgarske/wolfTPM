@@ -32,7 +32,7 @@
 
 #ifdef WOLFTPM_ZEPHYR
 
-/* Zephyr Inlcudes Start */
+/* Zephyr Includes Start */
 #include <zephyr/kernel.h>
 #include <zephyr/sys/printk.h>
 #include <zephyr/drivers/i2c.h>
@@ -172,8 +172,6 @@ int TPM2_IoCb_Zephyr_I2C(TPM2_CTX* ctx, int isRead, word32 addr,
     (void)ctx;
     return ret;
 }
-
-/* end WOLFTPM_I2C */
 
 #else /* If not I2C, it must be SPI  */
     /* TODO implement SPI */
