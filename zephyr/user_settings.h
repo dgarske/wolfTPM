@@ -43,6 +43,9 @@ extern "C" {
 #ifdef CONFIG_WOLFTPM_I2C
     #define WOLFTPM_I2C
     #define WOLFTPM_ADV_IO
+
+    //#define WOLFTPM_ZEPHYR_I2C_BUS flexcomm3_lpi2c3
+    //#define WOLFTPM_ZEPHYR_I2C_SPEED I2C_SPEED_STANDARD /* I2C_SPEED_FAST */
 #elif defined(CONFIG_WOLFTPM_SPI)
     /* default */
 #else
