@@ -282,6 +282,12 @@ typedef int64_t  INT64;
     #define WOLFTPM_NO_LOCK
 #endif
 
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && !defined(WOLFTPM_NO_LOCK)
+    /* if a mutex lock is supported, then don't use thread local on gActiveTPM */
+    #undef  WOLFTPM_NO_ACTIVE_THREAD_LS
+    #define WOLFTPM_NO_ACTIVE_THREAD_LS
+#endif
+
 
 /* ---------------------------------------------------------------------------*/
 /* TPM HARDWARE TYPE */
