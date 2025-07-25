@@ -182,7 +182,7 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
     if (rc != 0) {
         /* In not found try create using wolfTPM2 wrapper for NV_Define */
         rc = wolfTPM2_NVCreateAuth(&dev, &parent, &nv, nvIndex,
-            nvAttributes, nvSize, auth, authSz);
+            nvAttributes, nvSize, auth, (int)authSz);
 
         if (rc != 0 && rc != TPM_RC_NV_DEFINED) goto exit;
     }
@@ -216,7 +216,7 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
 
         /* The buffer holds pub.publicArea and also pub.size(UINT16) */
         rc = wolfTPM2_NVWriteAuth(&dev, &nv, nvIndex,
-            pubAreaBuffer, sizeof(UINT16) + keyBlob.pub.size, offset);
+            pubAreaBuffer, sizeof(UINT16) + keyBlob.pub.size, (word32)offset);
         if (rc != 0) goto exit;
         printf("NV write of public part succeeded\n\n");
         offset += sizeof(UINT16) + keyBlob.pub.size;
@@ -228,13 +228,14 @@ int TPM2_NVRAM_Store_Example(void* userCtx, int argc, char *argv[])
     if (partialStore != PUBLIC_PART_ONLY) {
         printf("Private part = %d bytes\n", keyBlob.priv.size);
         rc = wolfTPM2_NVWriteAuth(&dev, &nv, nvIndex,
-            (byte*)&keyBlob.priv.size, sizeof(keyBlob.priv.size), offset);
+            (byte*)&keyBlob.priv.size, sizeof(keyBlob.priv.size),
+            (word32)offset);
         if (rc != 0) goto exit;
         printf("Stored 2-byte size marker before the private part\n");
         offset += sizeof(keyBlob.priv.size);
 
         rc = wolfTPM2_NVWriteAuth(&dev, &nv, nvIndex,
-            keyBlob.priv.buffer, keyBlob.priv.size, offset);
+            keyBlob.priv.buffer, keyBlob.priv.size, (word32)offset);
         if (rc != 0) goto exit;
         printf("NV write of private part succeeded\n\n");
     }

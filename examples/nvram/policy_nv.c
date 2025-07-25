@@ -226,7 +226,7 @@ int TPM2_NVRAM_PolicyNV_Example(void* userCtx, int argc, char *argv[])
 
     policyNvIn.offset = 0;
     policyNvIn.operation = TPM_EO_EQ;
-    policyNvIn.operandB.size = bufLen;
+    policyNvIn.operandB.size = (UINT16)bufLen;
     XMEMCPY(policyNvIn.operandB.buffer, buf, bufLen);
 
     rc = TPM2_PolicyNV(&policyNvIn);

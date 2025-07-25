@@ -74,7 +74,7 @@ static TPM_RC SwTpmTransmit(TPM2_CTX* ctx, const void* buffer, ssize_t bufSz)
         return BAD_FUNC_ARG;
     }
 
-    wrc = write(ctx->tcpCtx.fd, buffer, bufSz);
+    wrc = write(ctx->tcpCtx.fd, buffer, (size_t)bufSz);
     if (bufSz != wrc) {
         rc = TPM_RC_FAILURE;
     }
@@ -116,7 +116,7 @@ static TPM_RC SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
             break;
         }
 
-        bytes_remaining -= wrc;
+        bytes_remaining -= (size_t)wrc;
         ptr += wrc;
 
         #ifdef WOLFTPM_DEBUG_VERBOSE
@@ -288,7 +288,7 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     }
 
     /* buffer size */
-    tss_word = TPM2_Packet_SwapU32(packet->pos);
+    tss_word = TPM2_Packet_SwapU32((UINT32)packet->pos);
     if (rc == TPM_RC_SUCCESS) {
         rc = SwTpmTransmit(ctx, &tss_word, sizeof(uint32_t));
     }
@@ -301,7 +301,7 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     /* receive response */
     if (rc == TPM_RC_SUCCESS) {
         rc = SwTpmReceive(ctx, &tss_word, sizeof(uint32_t));
-        rspSz = TPM2_Packet_SwapU32(tss_word);
+        rspSz = (int)TPM2_Packet_SwapU32(tss_word);
         if (rspSz > packet->size) {
             #ifdef WOLFTPM_DEBUG_VERBOSE
             printf("Response size(%d) larger than command buffer(%d)\n",
@@ -315,7 +315,7 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
      * misbehaving actor on the other end of the socket
      */
     if (rc == TPM_RC_SUCCESS) {
-        rc = SwTpmReceive(ctx, packet->buf, rspSz);
+        rc = SwTpmReceive(ctx, packet->buf, (size_t)rspSz);
     }
 
     /* receive ack */

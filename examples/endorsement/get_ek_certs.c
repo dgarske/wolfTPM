@@ -207,7 +207,7 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
         for (i=0; i<(int)(sizeof(trusted_certs)/sizeof(const char*)); i++) {
             const char* pemCert = trusted_certs[i];
             rc = wolfSSL_CertManagerLoadCABuffer(cm,
-                (const unsigned char*)pemCert, XSTRLEN(pemCert),
+                (const unsigned char*)pemCert, (long)XSTRLEN(pemCert),
                 WOLFSSL_FILETYPE_PEM);
             if (rc == WOLFSSL_SUCCESS) {
                 certSz++;
@@ -304,7 +304,7 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
                     if (cert.serialSz == 4) {
                         /* serial number is 32-bits */
                         word32 serial;
-                        XMEMCPY(&serial, cert.serial, cert.serialSz);
+                        XMEMCPY(&serial, cert.serial, (size_t)cert.serialSz);
                     #ifndef BIG_ENDIAN_ORDER
                         serial = ByteReverseWord32(serial);
                     #endif
@@ -314,7 +314,7 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
                     else {
                         /* Print serial as : separated hex bytes */
                         printf("Serial Number (%d bytes)\n", cert.serialSz);
-                        dump_hex_bytes(cert.serial, cert.serialSz);
+                        dump_hex_bytes(cert.serial, (word32)cert.serialSz);
                     }
                 }
 

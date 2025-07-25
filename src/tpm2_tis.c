@@ -64,29 +64,31 @@ enum tpm_tis_status {
 #define TPM_BASE_ADDRESS (0xD40000u)
 #endif
 
+#define TPM_LOCALITY_ADDRESS(l) (TPM_BASE_ADDRESS | ((word32)(l) << 12u))
+
 #ifdef WOLFTPM_I2C
 /* For I2C only the lower 8-bits of the address are used */
-#define TPM_ACCESS(l)           (TPM_BASE_ADDRESS | 0x0004u | ((l) << 12u))
-#define TPM_INTF_CAPS(l)        (TPM_BASE_ADDRESS | 0x0030u | ((l) << 12u))
-#define TPM_DID_VID(l)          (TPM_BASE_ADDRESS | 0x0048u | ((l) << 12u))
-#define TPM_RID(l)              (TPM_BASE_ADDRESS | 0x004Cu | ((l) << 12u))
-#define TPM_I2C_DEVICE_ADDR(l)  (TPM_BASE_ADDRESS | 0x0038u | ((l) << 12u))
-#define TPM_DATA_CSUM_ENABLE(l) (TPM_BASE_ADDRESS | 0x0040u | ((l) << 12u))
-#define TPM_DATA_CSUM(l)        (TPM_BASE_ADDRESS | 0x0044u | ((l) << 12u))
+#define TPM_ACCESS(l)           (TPM_LOCALITY_ADDRESS(l) | 0x0004u)
+#define TPM_INTF_CAPS(l)        (TPM_LOCALITY_ADDRESS(l) | 0x0030u)
+#define TPM_DID_VID(l)          (TPM_LOCALITY_ADDRESS(l) | 0x0048u)
+#define TPM_RID(l)              (TPM_LOCALITY_ADDRESS(l) | 0x004Cu)
+#define TPM_I2C_DEVICE_ADDR(l)  (TPM_LOCALITY_ADDRESS(l) | 0x0038u)
+#define TPM_DATA_CSUM_ENABLE(l) (TPM_LOCALITY_ADDRESS(l) | 0x0040u)
+#define TPM_DATA_CSUM(l)        (TPM_LOCALITY_ADDRESS(l) | 0x0044u)
 #else
-#define TPM_ACCESS(l)           (TPM_BASE_ADDRESS | 0x0000u | ((l) << 12u))
-#define TPM_INTF_CAPS(l)        (TPM_BASE_ADDRESS | 0x0014u | ((l) << 12u))
-#define TPM_DID_VID(l)          (TPM_BASE_ADDRESS | 0x0F00u | ((l) << 12u))
-#define TPM_RID(l)              (TPM_BASE_ADDRESS | 0x0F04u | ((l) << 12u))
+#define TPM_ACCESS(l)           (TPM_LOCALITY_ADDRESS(l) | 0x0000u)
+#define TPM_INTF_CAPS(l)        (TPM_LOCALITY_ADDRESS(l) | 0x0014u)
+#define TPM_DID_VID(l)          (TPM_LOCALITY_ADDRESS(l) | 0x0F00u)
+#define TPM_RID(l)              (TPM_LOCALITY_ADDRESS(l) | 0x0F04u)
 #endif
 
-#define TPM_INT_ENABLE(l)       (TPM_BASE_ADDRESS | 0x0008u | ((l) << 12u))
-#define TPM_INT_VECTOR(l)       (TPM_BASE_ADDRESS | 0x000Cu | ((l) << 12u))
-#define TPM_INT_STATUS(l)       (TPM_BASE_ADDRESS | 0x0010u | ((l) << 12u))
-#define TPM_STS(l)              (TPM_BASE_ADDRESS | 0x0018u | ((l) << 12u))
-#define TPM_BURST_COUNT(l)      (TPM_BASE_ADDRESS | 0x0019u | ((l) << 12u))
-#define TPM_DATA_FIFO(l)        (TPM_BASE_ADDRESS | 0x0024u | ((l) << 12u))
-#define TPM_XDATA_FIFO(l)       (TPM_BASE_ADDRESS | 0x0083u | ((l) << 12u))
+#define TPM_INT_ENABLE(l)       (TPM_LOCALITY_ADDRESS(l) | 0x0008u)
+#define TPM_INT_VECTOR(l)       (TPM_LOCALITY_ADDRESS(l) | 0x000Cu)
+#define TPM_INT_STATUS(l)       (TPM_LOCALITY_ADDRESS(l) | 0x0010u)
+#define TPM_STS(l)              (TPM_LOCALITY_ADDRESS(l) | 0x0018u)
+#define TPM_BURST_COUNT(l)      (TPM_LOCALITY_ADDRESS(l) | 0x0019u)
+#define TPM_DATA_FIFO(l)        (TPM_LOCALITY_ADDRESS(l) | 0x0024u)
+#define TPM_XDATA_FIFO(l)       (TPM_LOCALITY_ADDRESS(l) | 0x0083u)
 
 
 /* this option enables named semaphore protection on TIS commands for protected
@@ -192,7 +194,7 @@ int TPM2_TIS_Read(TPM2_CTX* ctx, word32 addr, byte* result,
         return rc;
 
 #ifdef WOLFTPM_ADV_IO
-    rc = ctx->ioCb(ctx, TPM_TIS_READ, addr, result, len, ctx->userCtx);
+    rc = ctx->ioCb(ctx, TPM_TIS_READ, addr, result, (UINT16)len, ctx->userCtx);
 #else
     txBuf[0] = TPM_TIS_READ | ((len & 0xFF) - 1);
     txBuf[1] = (addr>>16) & 0xFF;
@@ -201,7 +203,8 @@ int TPM2_TIS_Read(TPM2_CTX* ctx, word32 addr, byte* result,
     XMEMSET(&txBuf[TPM_TIS_HEADER_SZ], 0, sizeof(txBuf) - TPM_TIS_HEADER_SZ);
     XMEMSET(rxBuf, 0, sizeof(rxBuf));
 
-    rc = ctx->ioCb(ctx, txBuf, rxBuf, len + TPM_TIS_HEADER_SZ, ctx->userCtx);
+    rc = ctx->ioCb(ctx, txBuf, rxBuf, (UINT16)(len + TPM_TIS_HEADER_SZ),
+        ctx->userCtx);
 
     XMEMCPY(result, &rxBuf[TPM_TIS_HEADER_SZ], len);
 #endif
@@ -230,7 +233,7 @@ int TPM2_TIS_Write(TPM2_CTX* ctx, word32 addr, const byte* value,
         return rc;
 
 #ifdef WOLFTPM_ADV_IO
-    rc = ctx->ioCb(ctx, TPM_TIS_WRITE, addr, (byte*)value, len, ctx->userCtx);
+    rc = ctx->ioCb(ctx, TPM_TIS_WRITE, addr, (byte*)value, (UINT16)len, ctx->userCtx);
 #else
     txBuf[0] = TPM_TIS_WRITE | ((len & 0xFF) - 1);
     txBuf[1] = (addr>>16) & 0xFF;
@@ -241,7 +244,7 @@ int TPM2_TIS_Write(TPM2_CTX* ctx, word32 addr, const byte* value,
         sizeof(txBuf) - TPM_TIS_HEADER_SZ - len);
     XMEMSET(rxBuf, 0, sizeof(rxBuf));
 
-    rc = ctx->ioCb(ctx, txBuf, rxBuf, len + TPM_TIS_HEADER_SZ, ctx->userCtx);
+    rc = ctx->ioCb(ctx, txBuf, rxBuf, (UINT16)(len + TPM_TIS_HEADER_SZ), ctx->userCtx);
 #endif
     TPM2_TIS_UNLOCK();
 #ifdef WOLFTPM_DEBUG_IO
@@ -354,7 +357,7 @@ int TPM2_TIS_GetInfo(TPM2_CTX* ctx)
     reg = ByteReverseWord32(reg);
 #endif
     if (rc == TPM_RC_SUCCESS) {
-        ctx->rid = reg;
+        ctx->rid = (byte)reg;
     }
 
     return rc;
@@ -478,7 +481,7 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
             xferSz = burstCount;
 
         rc = TPM2_TIS_Write(ctx, TPM_DATA_FIFO(ctx->locality), &packet->buf[pos],
-                               xferSz);
+                               (word32)xferSz);
         if (rc != TPM_RC_SUCCESS)
             goto exit;
         pos += xferSz;
@@ -540,8 +543,8 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         if (xferSz > burstCount)
             xferSz = burstCount;
 
-        rc = TPM2_TIS_Read(ctx, TPM_DATA_FIFO(ctx->locality), &packet->buf[pos],
-                              xferSz);
+        rc = TPM2_TIS_Read(ctx, TPM_DATA_FIFO(ctx->locality),
+            &packet->buf[pos], (word32)xferSz);
         if (rc != TPM_RC_SUCCESS)
             goto exit;
 
@@ -552,7 +555,7 @@ int TPM2_TIS_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
             /* Extract size from header */
             UINT32 tmpSz;
             XMEMCPY(&tmpSz, &packet->buf[2], sizeof(UINT32));
-            rspSz = TPM2_Packet_SwapU32(tmpSz);
+            rspSz = (int)TPM2_Packet_SwapU32(tmpSz);
 
             /* safety check for stuck FFFF case */
             if (rspSz < 0 || rspSz >= MAX_RESPONSE_SIZE || rspSz > packet->size) {

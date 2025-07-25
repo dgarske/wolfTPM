@@ -108,7 +108,7 @@ int TPM2_PCR_Policy_Test(void* userCtx, int argc, char *argv[])
                 usage();
                 return 0;
             }
-            digestLen = hexToByte(digestStr, digest, digestLen / 2);
+            digestLen = (word32)hexToByte(digestStr, digest, digestLen / 2);
         }
         else if (argv[argc-1][0] != '-') {
             /* TODO: Allow selection of multiple PCR's SHA-1 or SHA2-256 */
@@ -153,7 +153,7 @@ int TPM2_PCR_Policy_Test(void* userCtx, int argc, char *argv[])
 
     /* TODO Add wrappers for these API's */
     cmdIn.pcrPolicy.policySession = tpmSession.handle.hndl;
-    cmdIn.pcrPolicy.pcrDigest.size = digestLen;
+    cmdIn.pcrPolicy.pcrDigest.size = (UINT16)digestLen;
     if (digestLen > 0) {
         XMEMCPY(cmdIn.pcrPolicy.pcrDigest.buffer, digest, digestLen);
     }

@@ -299,7 +299,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
 
     /* Perform RSA sign / verify - PKCSv1.5 (SSA) padding */
     message.size = 32; /* test message 0x11,0x11,etc */
-    XMEMSET(message.buffer, 0x11, message.size);
+    XMEMSET(message.buffer, 0x11, (size_t)message.size);
     cipher.size = sizeof(cipher.buffer); /* signature */
     rc = wolfTPM2_SignHashScheme(&dev, &rsaKey, message.buffer, message.size,
         cipher.buffer, &cipher.size, TPM_ALG_RSASSA, TPM_ALG_SHA256);
@@ -311,7 +311,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
 
     /* Perform RSA sign / verify - PSS padding */
     message.size = 32; /* test message 0x11,0x11,etc */
-    XMEMSET(message.buffer, 0x11, message.size);
+    XMEMSET(message.buffer, 0x11, (size_t)message.size);
     cipher.size = sizeof(cipher.buffer); /* signature */
     rc = wolfTPM2_SignHashScheme(&dev, &rsaKey, message.buffer, message.size,
         cipher.buffer, &cipher.size, TPM_ALG_RSAPSS, TPM_ALG_SHA256);
@@ -336,7 +336,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
 
     /* Perform RSA encrypt / decrypt (no pad) */
     message.size = 256; /* test message 0x11,0x11,etc */
-    XMEMSET(message.buffer, 0x11, message.size);
+    XMEMSET(message.buffer, 0x11, (size_t)message.size);
     cipher.size = sizeof(cipher.buffer); /* encrypted data */
     rc = wolfTPM2_RsaEncrypt(&dev, &rsaKey, TPM_ALG_NULL,
         message.buffer, message.size, cipher.buffer, &cipher.size);
@@ -347,14 +347,14 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     if (rc != 0) goto exit;
     /* Validate encrypt / decrypt */
     if (message.size != plain.size ||
-                    XMEMCMP(message.buffer, plain.buffer, message.size) != 0) {
+            XMEMCMP(message.buffer, plain.buffer, (size_t)message.size) != 0) {
         rc = TPM_RC_TESTING; goto exit;
     }
     printf("RSA Encrypt/Decrypt Test Passed\n");
 
     /* Perform RSA encrypt / decrypt (OAEP pad) */
     message.size = TPM_SHA256_DIGEST_SIZE; /* test message 0x11,0x11,etc */
-    XMEMSET(message.buffer, 0x11, message.size);
+    XMEMSET(message.buffer, 0x11, (size_t)message.size);
     cipher.size = sizeof(cipher.buffer); /* encrypted data */
     rc = wolfTPM2_RsaEncrypt(&dev, &rsaKey, TPM_ALG_OAEP,
         message.buffer, message.size, cipher.buffer, &cipher.size);
@@ -365,14 +365,14 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     if (rc != 0) goto exit;
     /* Validate encrypt / decrypt */
     if (message.size != plain.size ||
-                    XMEMCMP(message.buffer, plain.buffer, message.size) != 0) {
+            XMEMCMP(message.buffer, plain.buffer, (size_t)message.size) != 0) {
         rc = TPM_RC_TESTING; goto exit;
     }
     printf("RSA Encrypt/Decrypt OAEP Test Passed\n");
 
     /* Perform RSA encrypt / decrypt (RSAES pad) */
     message.size = TPM_SHA256_DIGEST_SIZE; /* test message 0x11,0x11,etc */
-    XMEMSET(message.buffer, 0x11, message.size);
+    XMEMSET(message.buffer, 0x11, (size_t)message.size);
     cipher.size = sizeof(cipher.buffer); /* encrypted data */
     rc = wolfTPM2_RsaEncrypt(&dev, &rsaKey, TPM_ALG_RSAES,
         message.buffer, message.size, cipher.buffer, &cipher.size);
@@ -383,7 +383,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     if (rc != 0) goto exit;
     /* Validate encrypt / decrypt */
     if (message.size != plain.size ||
-                    XMEMCMP(message.buffer, plain.buffer, message.size) != 0) {
+            XMEMCMP(message.buffer, plain.buffer, (size_t)message.size) != 0) {
         rc = TPM_RC_TESTING; goto exit;
     }
     printf("RSA Encrypt/Decrypt RSAES Test Passed\n");
@@ -577,7 +577,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
 
     /* Perform ECC sign / verify */
     message.size = TPM_SHA256_DIGEST_SIZE; /* test message 0x11,0x11,etc */
-    XMEMSET(message.buffer, 0x11, message.size);
+    XMEMSET(message.buffer, 0x11, (size_t)message.size);
     cipher.size = sizeof(cipher.buffer); /* signature */
     rc = wolfTPM2_SignHash(&dev, &eccKey, message.buffer, message.size,
         cipher.buffer, &cipher.size);
@@ -615,7 +615,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     if (rc != 0) goto exit;
 
     if (message.size != cipher.size ||
-        XMEMCMP(message.buffer, cipher.buffer, message.size) != 0) {
+        XMEMCMP(message.buffer, cipher.buffer, (size_t)message.size) != 0) {
         rc = -1; /* failed */
     }
     printf("ECC DH Test %s\n", rc == 0 ? "Passed" : "Failed");
@@ -762,9 +762,9 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
         wolfTPM2_SetAuthHandle(&dev, 0, &nv.handle);
 
         message.size = TPM2_DEMO_NV_TEST_SIZE; /* test message 0x11,0x11,etc */
-        XMEMSET(message.buffer, 0x11, message.size);
+        XMEMSET(message.buffer, 0x11, (size_t)message.size);
         rc = wolfTPM2_NVWriteAuth(&dev, &nv, TPM2_DEMO_NV_TEST_AUTH_INDEX,
-            message.buffer, message.size, 0);
+            message.buffer, (word32)message.size, 0);
         if (rc != 0) goto exit;
 
         plain.size = TPM2_DEMO_NV_TEST_SIZE;
@@ -779,7 +779,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
         if (rc != 0) goto exit;
 
         if (message.size != plain.size ||
-                    XMEMCMP(message.buffer, plain.buffer, message.size) != 0) {
+            XMEMCMP(message.buffer, plain.buffer, (size_t)message.size) != 0) {
             rc = TPM_RC_TESTING; goto exit;
         }
 
@@ -795,9 +795,9 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     if (rc != 0 && rc != TPM_RC_NV_DEFINED) goto exit;
 
     message.size = TPM2_DEMO_NV_TEST_SIZE; /* test message 0x11,0x11,etc */
-    XMEMSET(message.buffer, 0x11, message.size);
+    XMEMSET(message.buffer, 0x11, (size_t)message.size);
     rc = wolfTPM2_NVWrite(&dev, TPM_RH_OWNER, TPM2_DEMO_NV_TEST_INDEX,
-        message.buffer, message.size, 0);
+        message.buffer, (word32)message.size, 0);
     if (rc != 0) goto exit;
 
     plain.size = TPM2_DEMO_NV_TEST_SIZE;
@@ -812,7 +812,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     if (rc != 0) goto exit;
 
     if (message.size != plain.size ||
-                XMEMCMP(message.buffer, plain.buffer, message.size) != 0) {
+            XMEMCMP(message.buffer, plain.buffer, (size_t)message.size) != 0) {
         rc = TPM_RC_TESTING; goto exit;
     }
 
@@ -857,7 +857,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     if (rc != 0) goto exit;
 
     if (cipher.size != TPM_SHA256_DIGEST_SIZE ||
-        XMEMCMP(cipher.buffer, hashTestDig, cipher.size) != 0) {
+            XMEMCMP(cipher.buffer, hashTestDig, (size_t)cipher.size) != 0) {
         printf("Hash SHA256 test failed, result not as expected!\n");
         goto exit;
     }
@@ -883,7 +883,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     if (rc != 0) goto exit;
 
     if (cipher.size != TPM_SHA256_DIGEST_SIZE ||
-        XMEMCMP(cipher.buffer, hmacTestDig, cipher.size) != 0) {
+        XMEMCMP(cipher.buffer, hmacTestDig, (size_t)cipher.size) != 0) {
         printf("HMAC SHA256 test failed, result not as expected!\n");
         goto exit;
     }
@@ -908,27 +908,27 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     if (rc != 0) goto exit;
 
     message.size = (word32)sizeof(TEST_AES_MSG);
-    XMEMCPY(message.buffer, TEST_AES_MSG, message.size);
+    XMEMCPY(message.buffer, TEST_AES_MSG, (size_t)message.size);
     XMEMSET(cipher.buffer, 0, sizeof(cipher.buffer));
     cipher.size = message.size;
     XMEMCPY(aesIv, TEST_AES_IV, (word32)sizeof(TEST_AES_IV));
     rc = wolfTPM2_EncryptDecrypt(&dev, &aesKey, message.buffer, cipher.buffer,
-        message.size, aesIv, (word32)sizeof(aesIv), WOLFTPM2_ENCRYPT);
+        (word32)message.size, aesIv, (word32)sizeof(aesIv), WOLFTPM2_ENCRYPT);
     if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
 
     XMEMSET(plain.buffer, 0, sizeof(plain.buffer));
     plain.size = message.size;
     XMEMCPY(aesIv, (byte*)TEST_AES_IV, (word32)sizeof(TEST_AES_IV));
     rc = wolfTPM2_EncryptDecrypt(&dev, &aesKey, cipher.buffer, plain.buffer,
-        cipher.size, aesIv, (word32)sizeof(aesIv), WOLFTPM2_DECRYPT);
+        (word32)cipher.size, aesIv, (word32)sizeof(aesIv), WOLFTPM2_DECRYPT);
 
     wolfTPM2_UnloadHandle(&dev, &aesKey.handle);
 
     if (rc == TPM_RC_SUCCESS &&
          message.size == plain.size &&
-         XMEMCMP(message.buffer, plain.buffer, message.size) == 0 &&
+         XMEMCMP(message.buffer, plain.buffer, (size_t)message.size) == 0 &&
          cipher.size == sizeof(TEST_AES_VERIFY) &&
-         XMEMCMP(cipher.buffer, TEST_AES_VERIFY, cipher.size) == 0) {
+         XMEMCMP(cipher.buffer, TEST_AES_VERIFY, (size_t)cipher.size) == 0) {
         printf("Encrypt/Decrypt (known key) test success\n");
     }
     else if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) {
@@ -960,19 +960,19 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
     XMEMSET(cipher.buffer, 0, sizeof(cipher.buffer));
     cipher.size = message.size;
     rc = wolfTPM2_EncryptDecrypt(&dev, &aesKey, message.buffer, cipher.buffer,
-        message.size, NULL, 0, WOLFTPM2_ENCRYPT);
+        (word32)message.size, NULL, 0, WOLFTPM2_ENCRYPT);
     if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;
 
     XMEMSET(plain.buffer, 0, sizeof(plain.buffer));
     plain.size = message.size;
     rc = wolfTPM2_EncryptDecrypt(&dev, &aesKey, cipher.buffer, plain.buffer,
-        cipher.size, NULL, 0, WOLFTPM2_DECRYPT);
+        (word32)cipher.size, NULL, 0, WOLFTPM2_DECRYPT);
 
     wolfTPM2_UnloadHandle(&dev, &aesKey.handle);
 
     if (rc == TPM_RC_SUCCESS &&
          message.size == plain.size &&
-         XMEMCMP(message.buffer, plain.buffer, message.size) == 0) {
+         XMEMCMP(message.buffer, plain.buffer, (size_t)message.size) == 0) {
         printf("Encrypt/Decrypt test success\n");
     }
     else if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) {
@@ -994,7 +994,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
 
     /* Extend PCR Index 0 */
     for (i=0; i<hashSz; i++) {
-        hashBuf[i] = i;
+        hashBuf[i] = (byte)i;
     }
     rc = wolfTPM2_ExtendPCR(&dev, 0, TEST_WRAP_DIGEST, hashBuf, hashSz);
     if (rc != 0 && !WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) goto exit;

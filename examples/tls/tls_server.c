@@ -651,7 +651,7 @@ int TPM2_TLS_ServerArgs(void* userCtx, int argc, char *argv[])
             benchStart = gettime_secs(1);
         #else
             msgSz = sizeof(webServerMsg);
-            XMEMCPY(msg, webServerMsg, msgSz);
+            XMEMCPY(msg, webServerMsg, (size_t)msgSz);
         #endif
             do {
                 rc = wolfSSL_write(ssl, msg, msgSz);

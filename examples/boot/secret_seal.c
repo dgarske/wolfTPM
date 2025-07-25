@@ -143,7 +143,7 @@ int TPM2_Boot_SecretSeal_Example(void* userCtx, int argc, char *argv[])
         }
         else if (XSTRNCMP(argv[argc-1], "-secretstr=", XSTRLEN("-secretstr=")) == 0) {
             const char* secretStr = argv[argc-1] + XSTRLEN("-secretstr=");
-            secretSz = (int)XSTRLEN(secretStr);
+            secretSz = (word32)XSTRLEN(secretStr);
             if (secretSz > (word32)sizeof(secret)-1)
                 secretSz = (word32)sizeof(secret)-1;
             XMEMCPY(secret, secretStr, secretSz);
@@ -153,7 +153,8 @@ int TPM2_Boot_SecretSeal_Example(void* userCtx, int argc, char *argv[])
             word32 secretStrSz = (word32)XSTRLEN(secretStr);
             if (secretStrSz > (word32)(sizeof(secret)*2-1))
                 secretStrSz = (word32)(sizeof(secret)*2-1);
-            secretSz = hexToByte(secretStr, secret, secretStrSz);
+            secretSz = (word32)hexToByte(secretStr, secret,
+                (unsigned long)secretStrSz);
         }
         else if (XSTRNCMP(argv[argc-1], "-policy=",
                 XSTRLEN("-policy=")) == 0) {
@@ -247,7 +248,7 @@ int TPM2_Boot_SecretSeal_Example(void* userCtx, int argc, char *argv[])
         if (rc == 0) {
             /* Policy Digest used for creation of a keyed hash */
             XMEMSET(policyDigest, 0, sizeof(policyDigest));
-            policyDigestSz = TPM2_GetHashDigestSize(pcrAlg);
+            policyDigestSz = (word32)TPM2_GetHashDigestSize(pcrAlg);
             rc = wolfTPM2_PolicyAuthorizeMake(pcrAlg, &authKey.pub,
                 policyDigest, &policyDigestSz, NULL, 0);
         }
@@ -268,10 +269,10 @@ int TPM2_Boot_SecretSeal_Example(void* userCtx, int argc, char *argv[])
 
     /* Create a new key for sealing using signing auth for external key */
     wolfTPM2_GetKeyTemplate_KeySeal(&sealTemplate, pcrAlg);
-    sealTemplate.authPolicy.size = policyDigestSz;
+    sealTemplate.authPolicy.size = (UINT16)policyDigestSz;
     XMEMCPY(sealTemplate.authPolicy.buffer, policyDigest, policyDigestSz);
     rc = wolfTPM2_CreateKeySeal_ex(&dev, &sealBlob, &storage.handle,
-        &sealTemplate, NULL, 0, pcrAlg, NULL, 0, secret, secretSz);
+        &sealTemplate, NULL, 0, pcrAlg, NULL, 0, secret, (int)secretSz);
     if (rc != 0) goto exit;
     printf("Sealed keyed hash (pub %d, priv %d bytes):\n",
         sealBlob.pub.size, sealBlob.priv.size);

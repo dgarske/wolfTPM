@@ -130,7 +130,8 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
             if (hashHexStrLen > (int)sizeof(digest)*2+1)
                 digestSz = -1;
             else
-                digestSz = hexToByte(hashHexStr, digest, hashHexStrLen);
+                digestSz = hexToByte(hashHexStr, digest,
+                    (unsigned long)hashHexStrLen);
             if (digestSz <= 0) {
                 fprintf(stderr, "Invalid hash length\n");
                 usage();
@@ -143,7 +144,7 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
             authBufSz = (int)XSTRLEN(authHexStr);
             if (authBufSz > (int)sizeof(authBuf))
                 authBufSz = (word32)sizeof(authBuf);
-            XMEMCPY(authBuf, authHexStr, authBufSz);
+            XMEMCPY(authBuf, authHexStr, (size_t)authBufSz);
         }
         else if (XSTRNCMP(argv[argc-1], "-authhex=", XSTRLEN("-authhex=")) == 0) {
             const char* authHexStr = argv[argc-1] + XSTRLEN("-authhex=");
@@ -151,7 +152,8 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
             if (authHexStrLen > (int)sizeof(authBuf)*2+1)
                 authBufSz = -1;
             else
-                authBufSz = hexToByte(authHexStr, authBuf, authHexStrLen);
+                authBufSz = hexToByte(authHexStr, authBuf,
+                    (unsigned long)authHexStrLen);
             if (authBufSz < 0) {
                 fprintf(stderr, "Invalid auth length\n");
                 usage();
@@ -181,7 +183,7 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
 
     /* Start TPM session for parameter encryption */
     printf("Parameter Encryption: Enabled %s and HMAC\n\n",
-        TPM2_GetAlgName(paramEncAlg));
+        TPM2_GetAlgName((TPM_ALG_ID)paramEncAlg));
     rc = wolfTPM2_StartSession(&dev, &tpmSession, NULL, NULL,
             TPM_SE_HMAC, paramEncAlg);
     if (rc != 0) goto exit;
@@ -194,7 +196,7 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
     if (rc != 0) goto exit;
 
     printf("NV Auth (%d)\n", authBufSz);
-    TPM2_PrintBin(authBuf, authBufSz);
+    TPM2_PrintBin(authBuf, (word32)authBufSz);
 
     /* Open file */
     if (doWrite) {
@@ -209,13 +211,14 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
             if (rc == 0) {
                 /* hash public key */
                 digestSz = wc_HashGetDigestSize(hashType);
-                rc = wc_Hash(hashType, buf, (word32)bufSz, digest, digestSz);
+                rc = wc_Hash(hashType, buf, (word32)bufSz, digest,
+                    (word32)digestSz);
             }
         }
 
         if (rc == 0) {
             printf("Public Key Hash (%d)\n", digestSz);
-            TPM2_PrintBin(digest, digestSz);
+            TPM2_PrintBin(digest, (word32)digestSz);
         }
         if (rc == 0) {
             /* Get NV attributes */
@@ -227,7 +230,7 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
 
             /* Create NV */
             rc = wolfTPM2_NVCreateAuth(&dev, &parent, &nv, nvIndex,
-                nvAttributes, digestSz, authBuf, authBufSz);
+                nvAttributes, (word32)digestSz, authBuf, authBufSz);
             if (rc == TPM_RC_NV_DEFINED) {
                 printf("Warning: NV Index 0x%x already exists!\n", nvIndex);
                 rc = 0;
@@ -236,7 +239,8 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
         }
         if (rc == 0) {
             /* Write digest to NV */
-            rc = wolfTPM2_NVWriteAuth(&dev, &nv, nvIndex, digest, digestSz, 0);
+            rc = wolfTPM2_NVWriteAuth(&dev, &nv, nvIndex, digest,
+                (word32)digestSz, 0);
         }
         if (rc != 0) goto exit;
         printf("Wrote %d bytes to NV 0x%x\n", digestSz, nvIndex);
@@ -245,7 +249,7 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
     /* Setup the NV access */
     XMEMSET(&nv, 0, sizeof(nv));
     nv.handle.hndl = nvIndex;
-    nv.handle.auth.size = authBufSz;
+    nv.handle.auth.size = (UINT16)authBufSz;
     XMEMCPY(nv.handle.auth.buffer, authBuf, nv.handle.auth.size);
 
     /* Read the NV Index publicArea to have up to date NV Index Name */
@@ -259,7 +263,7 @@ int TPM2_Boot_SecureROT_Example(void* userCtx, int argc, char *argv[])
     rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, digest, (word32*)&digestSz, 0);
     if (rc == 0) {
         printf("Read Public Key Hash (%d)\n", digestSz);
-        TPM2_PrintBin(digest, digestSz);
+        TPM2_PrintBin(digest, (word32)digestSz);
     }
     else if ((rc & RC_MAX_FMT1) == TPM_RC_HANDLE) {
         printf("NV index does not exist\n");

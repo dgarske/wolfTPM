@@ -189,7 +189,7 @@ int TPM2_Keyimport_Example(void* userCtx, int argc, char *argv[])
 
     /* setup an auth value */
     if (password != NULL) {
-        impKey.handle.auth.size = (int)XSTRLEN(password);
+        impKey.handle.auth.size = (UINT16)XSTRLEN(password);
         XMEMCPY(impKey.handle.auth.buffer, password, impKey.handle.auth.size);
     }
 

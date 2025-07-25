@@ -124,7 +124,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
 
     /* Mark parameter data */
     param = &packet->buf[packet->pos];
-    paramSz = cmdSz - packet->pos;
+    paramSz = (int)cmdSz - packet->pos;
 
     /* Mark "first" encryption parameter */
     if (info->flags & CMD_FLAG_ENC2) {
@@ -137,7 +137,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
         UINT32 tempSz;
         TPM2_Packet_ParseU32(packet, &tempSz);
         encParam = param + sizeof(UINT32);
-        encParamSz = tempSz;
+        encParamSz = (int)tempSz;
     }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE
@@ -194,7 +194,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
         #endif
 
             /* default is a HMAC output (using alg authHash) */
-            authCmd.hmac.size = TPM2_GetHashDigestSize(session->authHash);
+            authCmd.hmac.size = (UINT16)TPM2_GetHashDigestSize(session->authHash);
 
             /* if param enc is not supported for this command then clear flag */
             /* session attribute flags are from TPM perspective */
@@ -208,7 +208,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
             /* Handle session request for encryption */
             if (encParam && authCmd.sessionAttributes & TPMA_SESSION_decrypt) {
                 /* Encrypt the first command parameter */
-                rc = TPM2_ParamEnc_CmdRequest(session, encParam, encParamSz);
+                rc = TPM2_ParamEnc_CmdRequest(session, encParam, (UINT32)encParamSz);
                 if (rc != TPM_RC_SUCCESS) {
             #ifdef DEBUG_WOLFTPM
                     printf("Command parameter encryption failed\n");
@@ -230,7 +230,7 @@ static int TPM2_CommandProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
 
             /* calculate "cpHash" hash for command code, names and parameters */
             rc = TPM2_CalcCpHash(session->authHash, cmdCode, &name1,
-                &name2, &name3, param, paramSz, &hash);
+                &name2, &name3, param, (word32)paramSz, &hash);
             if (rc != TPM_RC_SUCCESS) {
             #ifdef DEBUG_WOLFTPM
                 printf("Error calculating cpHash!\n");
@@ -290,7 +290,7 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
     /* Response Parameter Size */
     TPM2_Packet_ParseU32(packet, &paramSz);
     param = &packet->buf[packet->pos]; /* Mark parameter data */
-    authPos = packet->pos + paramSz;
+    authPos = (UINT32)packet->pos + paramSz;
 
     /* Mark "first" decryption parameter */
     if (info->flags & CMD_FLAG_DEC2) {
@@ -318,9 +318,9 @@ static int TPM2_ResponseProcess(TPM2_CTX* ctx, TPM2_Packet* packet,
 
         /* Parse Auth - if exists */
         if (respSz > authPos) {
-            packet->pos = authPos;
+            packet->pos = (int)authPos;
             TPM2_Packet_ParseAuth(packet, &authRsp);
-            authPos = packet->pos;
+            authPos = (UINT32)packet->pos;
         }
 
         if (session->sessionHandle != TPM_RS_PW) {
@@ -406,7 +406,7 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
         return BAD_FUNC_ARG;
 
     cmd = packet->buf;
-    cmdSz = packet->pos;
+    cmdSz = (UINT32)packet->pos;
     (void)cmd;
 
     /* restart the unmarshalling position */
@@ -431,7 +431,7 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
     }
 
     /* reset packet->pos to total command length (send command requires it) */
-    packet->pos = cmdSz;
+    packet->pos = (int)cmdSz;
 
     /* submit command and wait for response */
     rc = (TPM_RC)INTERNAL_SEND_COMMAND(ctx, packet);
@@ -440,7 +440,7 @@ static TPM_RC TPM2_SendCommandAuth(TPM2_CTX* ctx, TPM2_Packet* packet,
 
     /* parse response */
     rc = TPM2_Packet_Parse(rc, packet);
-    respSz = packet->size;
+    respSz = (UINT32)packet->size;
 
     /* restart the unmarshalling position */
     packet->pos = 0;
@@ -1026,7 +1026,7 @@ TPM_RC TPM2_GetCapability(GetCapability_In* in, GetCapability_Out* out)
                 case TPM_CAP_VENDOR_PROPERTY:
                 {
                     out->capabilityData.data.vendor.size =
-                        packet.size - packet.pos;
+                        (UINT16)(packet.size - packet.pos);
                     if (out->capabilityData.data.vendor.size >
                             sizeof(out->capabilityData.data.vendor.buffer)) {
                         out->capabilityData.data.vendor.size =
@@ -5463,8 +5463,8 @@ TPM_RC TPM2_GetProductInfo(uint8_t* info, uint16_t size)
              */
 
             /* start of product info starts at byte 26 */
-            if (size > packet.size - 26)
-                size = packet.size - 26;
+            if (size > (uint16_t)packet.size - 26)
+                size = (uint16_t)packet.size - 26;
             XMEMCPY(info, &packet.buf[25], size);
         }
         TPM2_ReleaseLock(ctx);
@@ -5714,7 +5714,7 @@ int TPM2_GetNonceNoLock(byte* nonceBuf, int nonceSz)
     rc = TPM2_GetWolfRng(&rng);
     if (rc == 0) {
         /* Use wolfCrypt */
-        rc = wc_RNG_GenerateBlock(rng, nonceBuf, nonceSz);
+        rc = wc_RNG_GenerateBlock(rng, nonceBuf, (word32)nonceSz);
     }
 #else
     /* Call GetRandom directly, so a custom packet buffer can be used.
@@ -5879,7 +5879,7 @@ const char* TPM2_GetRCString(int rc)
         #if !defined(WOLFCRYPT_ONLY) && \
             (!defined(NO_WOLFSSL_SERVER) || !defined(NO_WOLFSSL_CLIENT))
             /* include TLS error codes */
-            return wolfSSL_ERR_reason_error_string(rc);
+            return wolfSSL_ERR_reason_error_string((word32)rc);
         #else
             return wc_GetErrorString(rc);
         #endif
@@ -6322,7 +6322,7 @@ int TPM2_GetWolfRng(WC_RNG** rng)
 
     if (!ctx->rngInit) {
         /* Use did_vid for devId (conforms with wolfTPM2_GetTpmDevId) */
-        rc = wc_InitRng_ex(&ctx->rng, NULL, ctx->did_vid);
+        rc = wc_InitRng_ex(&ctx->rng, NULL, (int)ctx->did_vid);
         if (rc < 0) {
         #ifdef DEBUG_WOLFTPM
             printf("wc_InitRng_ex failed %d: %s\n",
@@ -6409,7 +6409,7 @@ int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
 
     rc = wc_HashInit(&hash, hashType);
     if (rc == 0) {
-        rc = wc_HashUpdate(&hash, hashType, packet.buf, packet.pos);
+        rc = wc_HashUpdate(&hash, hashType, packet.buf, (word32)packet.pos);
     }
     if (rc == 0) {
         rc = wc_HashFinal(&hash, hashType, &buffer[2]);
@@ -6419,9 +6419,9 @@ int TPM2_HashNvPublic(TPMS_NV_PUBLIC* nvPublic, byte* buffer, UINT16* size)
         /* Concatenate the nvPublic digest with nameAlg at the front */
         nameAlgValue = TPM2_Packet_SwapU16(nvPublic->nameAlg);
         nameAlgSize = sizeof(nvPublic->nameAlg);
-        XMEMCPY(buffer, (byte*)&nameAlgValue, nameAlgSize);
+        XMEMCPY(buffer, (byte*)&nameAlgValue, (size_t)nameAlgSize);
         /* account for nameAlg concatenation */
-        *size = hashSize + nameAlgSize;
+        *size = (UINT16)(hashSize + nameAlgSize);
         rc = TPM_RC_SUCCESS;
     }
 

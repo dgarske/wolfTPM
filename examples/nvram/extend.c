@@ -67,7 +67,7 @@ static int PolicyOrApply(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* policySession,
     policyOR.policySession = policySession->handle.hndl;
     policyOR.pHashList.count = hashListSz;
     for (i=0; i<hashListSz; i++) {
-        policyOR.pHashList.digests[i].size = digestSz;
+        policyOR.pHashList.digests[i].size = (UINT16)digestSz;
         XMEMCPY(policyOR.pHashList.digests[i].buffer, hashList[i], digestSz);
     }
     (void)dev;
@@ -90,7 +90,7 @@ int TPM2_NVRAM_Extend_Example(void* userCtx, int argc, char *argv[])
     byte*  auth = (byte*)"cpusecret";
     word32 authSz = (word32)XSTRLEN((const char*)auth);
     TPMI_ALG_HASH hashAlg = WOLFTPM2_WRAP_DIGEST;
-    word32 nvSize = TPM2_GetHashDigestSize(hashAlg);
+    word32 nvSize = (word32)TPM2_GetHashDigestSize(hashAlg);
     byte   nvDigest[TPM_MAX_DIGEST_SIZE]; /* buffer for nv read */
     byte   policyDigest[3*TPM_MAX_DIGEST_SIZE]; /* Policy A/B/C */
     word32 policyDigestSz = 0;
@@ -237,7 +237,7 @@ int TPM2_NVRAM_Extend_Example(void* userCtx, int argc, char *argv[])
             TPMA_NV_POLICYWRITE |
             TPMA_NV_POLICYREAD |
             TPMA_NV_NO_DA);
-    nvSize = TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST);
+    nvSize = (word32)TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST);
 
     /* Try and open existing NV */
     rc = wolfTPM2_NVOpen(&dev, &nv, nvIndex, auth, authSz);
@@ -247,8 +247,8 @@ int TPM2_NVRAM_Extend_Example(void* userCtx, int argc, char *argv[])
         rc = wolfTPM2_NVCreateAuthPolicy(&dev, &nvAuth, &nv, nvIndex,
             nvAttributes, /* needs TPM_NT_EXTEND set */
             nvSize, /* must match nameAlg digest size */
-            auth, authSz, /* the password to bind session with */
-            policyOr, nvSize
+            auth, (int)authSz, /* the password to bind session with */
+            policyOr, (int)nvSize
         );
     }
     if (rc != 0) {

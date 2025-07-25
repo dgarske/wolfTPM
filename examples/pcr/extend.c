@@ -142,7 +142,7 @@ int TPM2_PCR_Extend_Test(void* userCtx, int argc, char *argv[])
 
     /* Prepare PCR Extend command */
     XMEMSET(&cmdIn.pcrExtend, 0, sizeof(cmdIn.pcrExtend));
-    cmdIn.pcrExtend.pcrHandle = pcrIndex;
+    cmdIn.pcrExtend.pcrHandle = (TPMI_DH_PCR)pcrIndex;
     cmdIn.pcrExtend.digests.count = 1;
     cmdIn.pcrExtend.digests.digests[0].hashAlg = alg;
 
@@ -159,21 +159,21 @@ int TPM2_PCR_Extend_Test(void* userCtx, int argc, char *argv[])
         while (!XFEOF(fp)) {
             len = XFREAD(dataBuffer, 1, sizeof(dataBuffer), fp);
             if (len > 0) {
-                wc_HashUpdate(&dig, hashType, dataBuffer, (int)len);
+                wc_HashUpdate(&dig, hashType, dataBuffer, (word32)len);
             }
         }
         XFCLOSE(fp);
         wc_HashFinal(&dig, hashType, hash);
 
         XMEMCPY(cmdIn.pcrExtend.digests.digests[0].digest.H,
-                hash, hashSz);
+                hash, (word32)hashSz);
     }
     else
 #endif /* !WOLFTPM2_NO_WOLFCRYPT && !NO_FILESYSTEM */
     {
         printf("Error loading file %s, using test data\n", filename);
         for (i=0; i<hashSz; i++) {
-            cmdIn.pcrExtend.digests.digests[0].digest.H[i] = i;
+            cmdIn.pcrExtend.digests.digests[0].digest.H[i] = (BYTE)i;
         }
     }
 

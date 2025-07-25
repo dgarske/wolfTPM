@@ -227,7 +227,7 @@ int TLS_ClientArgs(int argc, char *argv[])
         total_size += msgSz;
     #else
         msgSz = sizeof(webServerMsg);
-        XMEMCPY(msg, webServerMsg, msgSz);
+        XMEMCPY(msg, webServerMsg, (size_t)msgSz);
     #endif
 
         /* perform write */
@@ -284,7 +284,8 @@ int TLS_ClientArgs(int argc, char *argv[])
 exit:
 
     if (rc != 0) {
-        printf("Failure %d (0x%x): %s\n", rc, rc, wolfSSL_ERR_reason_error_string(rc));
+        printf("Failure %d (0x%x): %s\n", rc, rc,
+            wolfSSL_ERR_reason_error_string((unsigned long)rc));
     }
 
     wolfSSL_shutdown(ssl);

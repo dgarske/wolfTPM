@@ -579,7 +579,7 @@ int TPM2_TLS_ClientArgs(void* userCtx, int argc, char *argv[])
         total_size += msgSz;
     #else
         msgSz = sizeof(webServerMsg);
-        XMEMCPY(msg, webServerMsg, msgSz);
+        XMEMCPY(msg, webServerMsg, (size_t)msgSz);
     #endif
 
         /* perform write */

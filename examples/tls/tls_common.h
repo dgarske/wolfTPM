@@ -107,7 +107,7 @@ static inline int SockIORecv(WOLFSSL* ssl, char* buff, int sz, void* ctx)
     (void)ssl;
 
     /* Receive message from socket */
-    if ((recvd = (int)recv(sockCtx->fd, buff, sz, 0)) == -1) {
+    if ((recvd = (int)recv(sockCtx->fd, buff, (size_t)sz, 0)) == -1) {
         /* error encountered. Be responsible and report it in wolfSSL terms */
 
         printf("IO RECEIVE ERROR: ");
@@ -171,7 +171,7 @@ static inline int SockIOSend(WOLFSSL* ssl, char* buff, int sz, void* ctx)
     (void)ssl;
 
     /* Receive message from socket */
-    if ((sent = (int)send(sockCtx->fd, buff, sz, 0)) == -1) {
+    if ((sent = (int)send(sockCtx->fd, buff, (size_t)sz, 0)) == -1) {
         /* error encountered. Be responsible and report it in wolfSSL terms */
 
         printf("IO SEND ERROR: ");
@@ -298,7 +298,7 @@ static inline int SetupSocketAndConnect(SockIoCbCtx* sockIoCtx, const char* host
     entry = gethostbyname(host);
     if (entry) {
         XMEMCPY(&servAddr.sin_addr.s_addr, entry->h_addr_list[0],
-            entry->h_length);
+            (size_t)entry->h_length);
     }
     else {
         servAddr.sin_addr.s_addr = inet_addr(host);
@@ -368,8 +368,8 @@ static inline int myVerify(int preverify, WOLFSSL_X509_STORE_CTX* store)
      * store->ex_data:      The WOLFSSL object pointer
      */
 
-    printf("In verification callback, error = %d, %s\n",
-        store->error, wolfSSL_ERR_reason_error_string(store->error));
+    printf("In verification callback, error = %d, %s\n", store->error,
+        wolfSSL_ERR_reason_error_string((unsigned long)store->error));
     printf("\tPeer certs: %d\n", store->totalCerts);
     printf("\tSubject's domain name at %d is %s\n",
         store->error_depth, store->domain);

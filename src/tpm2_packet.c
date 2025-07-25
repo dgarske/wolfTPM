@@ -169,7 +169,7 @@ void TPM2_Packet_ParseU64(TPM2_Packet* packet, UINT64* data)
 void TPM2_Packet_AppendS32(TPM2_Packet* packet, INT32 data)
 {
     if (packet && (packet->pos + (int)sizeof(INT32) <= packet->size)) {
-        data = cpu_to_be32(data);
+        data = (INT32)cpu_to_be32((word32)data);
         XMEMCPY(&packet->buf[packet->pos], &data, sizeof(INT32));
         packet->pos += sizeof(INT32);
     }
@@ -179,7 +179,7 @@ void TPM2_Packet_AppendBytes(TPM2_Packet* packet, byte* buf, int size)
 {
     if (packet && (packet->pos + size <= packet->size)) {
         if (buf)
-            XMEMCPY(&packet->buf[packet->pos], buf, size);
+            XMEMCPY(&packet->buf[packet->pos], buf, (size_t)size);
         packet->pos += size;
     }
 }
@@ -191,7 +191,7 @@ void TPM2_Packet_ParseBytes(TPM2_Packet* packet, byte* buf, int size)
             int sizeToCopy = size;
             if (packet->pos + sizeToCopy > packet->size)
                 sizeToCopy = packet->size - packet->pos;
-            XMEMCPY(buf, &packet->buf[packet->pos], sizeToCopy);
+            XMEMCPY(buf, &packet->buf[packet->pos], (size_t)sizeToCopy);
         }
         packet->pos += size;
     }
@@ -217,7 +217,7 @@ int TPM2_Packet_PlaceU16(TPM2_Packet* packet, int markSz)
         if (markSz <= packet->pos) {
             rc = packet->pos - markSz;
 
-            data = cpu_to_be16(rc);
+            data = (UINT16)cpu_to_be16((word16)rc);
             XMEMCPY(sizePtr, &data, sizeof(UINT16));
         }
     }
@@ -244,7 +244,7 @@ int TPM2_Packet_PlaceU32(TPM2_Packet* packet, int markSz)
         if (markSz <= packet->pos) {
             actSz = packet->pos - markSz;
 
-            data = cpu_to_be32(actSz);
+            data = (UINT32)cpu_to_be32((word32)actSz);
             XMEMCPY(sizePtr, &data, sizeof(UINT32));
         }
     }
@@ -338,12 +338,11 @@ TPM_ST TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPM2_CTX* ctx, CmdInfo_t* inf
 {
     TPM_ST st = TPM_ST_NO_SESSIONS;
 
-    if (ctx == NULL || info == NULL)
-        return BAD_FUNC_ARG;
-    if (ctx->session == NULL)
+    if (ctx == NULL || info == NULL || ctx->session == NULL) {
         return st;
+    }
 
-    info->authCnt = TPM2_GetCmdAuthCount(ctx, info);
+    info->authCnt = (unsigned char)TPM2_GetCmdAuthCount(ctx, info);
     if (info->authCnt > 0) {
         int i, authTotalSzPos = 0;
         TPM2_Packet_MarkU32(packet, &authTotalSzPos);
@@ -362,7 +361,7 @@ TPM_ST TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPM2_CTX* ctx, CmdInfo_t* inf
             packet->pos += sizeof(UINT16); /* nonceSz */
             if (session->sessionHandle != TPM_RS_PW) {
                 session->nonceCaller.size =
-                    TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST);
+                    (UINT16)TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST);
                 packet->pos += session->nonceCaller.size;
             }
 
@@ -737,7 +736,7 @@ void TPM2_Packet_AppendPublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
 
     TPM2_Packet_MarkU16(packet, &tmpSz);
     TPM2_Packet_AppendPublicArea(packet, &pub->publicArea);
-    pub->size = TPM2_Packet_PlaceU16(packet, tmpSz);
+    pub->size = (UINT16)TPM2_Packet_PlaceU16(packet, tmpSz);
 }
 void TPM2_Packet_ParsePublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
 {
@@ -955,21 +954,21 @@ TPM_RC TPM2_Packet_Parse(TPM_RC rc, TPM2_Packet* packet)
         TPM2_Packet_ParseU16(packet, NULL);     /* tag */
         TPM2_Packet_ParseU32(packet, &respSz);  /* response size */
         TPM2_Packet_ParseU32(packet, &tmpRc);   /* response code */
-        packet->size = respSz;
-        rc = tmpRc;
+        packet->size = (int)respSz;
+        rc = (TPM_RC)tmpRc;
     }
     return rc;
 }
 
 int TPM2_Packet_Finalize(TPM2_Packet* packet, TPM_ST tag, TPM_CC cc)
 {
-    word32 cmdSz = packet->pos; /* get total packet size */
+    word32 cmdSz = (word32)packet->pos; /* get total packet size */
     packet->pos = 0; /* reset position to front */
     TPM2_Packet_AppendU16(packet, tag);    /* tag */
     TPM2_Packet_AppendU32(packet, cmdSz);  /* command size */
     TPM2_Packet_AppendU32(packet, cc);     /* command code */
-    packet->pos = cmdSz; /* restore total size */
-    return cmdSz;
+    packet->pos = (int)cmdSz; /* restore total size */
+    return (int)cmdSz;
 }
 
 /******************************************************************************/

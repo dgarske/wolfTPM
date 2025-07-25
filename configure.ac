@@ -24,6 +24,37 @@ AC_CONFIG_MACRO_DIR([m4])
 
 AM_INIT_AUTOMAKE([1.11 -Wall -Werror -Wno-portability foreign tar-ustar subdir-objects no-define color-tests])
 
+# Enable extra and pedantic warnings
+AC_ARG_ENABLE([extra-warnings],
+    [AS_HELP_STRING([--enable-extra-warnings],[Enable extra compiler warnings (default: disabled)])],
+    [ ENABLED_EXTRA_WARNINGS=$enableval ],
+    [ ENABLED_EXTRA_WARNINGS=no ]
+    )
+
+AC_ARG_ENABLE([pedantic],
+    [AS_HELP_STRING([--enable-pedantic],[Enable pedantic compiler warnings (default: disabled)])],
+    [ ENABLED_PEDANTIC=$enableval ],
+    [ ENABLED_PEDANTIC=no ]
+    )
+
+# Set warning flags based on configuration
+EXTRA_WARNING_FLAGS=""
+if test "x$ENABLED_EXTRA_WARNINGS" = "xyes"
+then
+    EXTRA_WARNING_FLAGS="$EXTRA_WARNING_FLAGS -Wextra -Wformat=2 -Wformat-security -Wformat-nonliteral -Wcast-align -Wpointer-arith -Wbad-function-cast -Wmissing-declarations -Wmissing-prototypes -Wnested-externs -Wshadow -Wundef -Wwrite-strings -Wno-unused-parameter -Wno-unused-function"
+fi
+
+if test "x$ENABLED_PEDANTIC" = "xyes"
+then
+    EXTRA_WARNING_FLAGS="$EXTRA_WARNING_FLAGS -Wpedantic -Wconversion -Wsign-conversion -Wstrict-prototypes -Wstrict-overflow=5"
+fi
+
+# Add warning flags to AM_CFLAGS if any are enabled
+if test -n "$EXTRA_WARNING_FLAGS"
+then
+    AM_CFLAGS="$AM_CFLAGS $EXTRA_WARNING_FLAGS"
+fi
+
 AC_ARG_PROGRAM
 
 AC_CONFIG_HEADERS([src/config.h])
@@ -581,3 +612,5 @@ echo "   * Nuvoton NPCT75x:           $ENABLED_NUVOTON"
 
 echo "   * Runtime Module Detection:  $ENABLED_AUTODETECT"
 echo "   * Firmware Upgrade Support:  $ENABLED_FIRMWARE"
+echo "   * Extra Warnings:             $ENABLED_EXTRA_WARNINGS"
+echo "   * Pedantic Warnings:          $ENABLED_PEDANTIC"
