@@ -151,9 +151,11 @@ jobs:
 
 # build pedantic
     - name: configure pedantic
-      run: ./configure CFLAGS="-Wpedantic"
+      run: ./configure --enable-extra-warnings --enable-pedantic
     - name: make pedantic
-      run: make
+      run: |
+        make
+        make check
 
 # build not provisioning
     - name: configure not provisioning

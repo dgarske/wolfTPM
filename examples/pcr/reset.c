@@ -90,7 +90,7 @@ int TPM2_PCR_Reset_Test(void* userCtx, int argc, char *argv[])
 
     /* Prepare PCR Reset command */
     XMEMSET(&cmdIn.pcrReset, 0, sizeof(cmdIn.pcrReset));
-    cmdIn.pcrReset.pcrHandle = pcrIndex;
+    cmdIn.pcrReset.pcrHandle = (TPMI_DH_PCR)pcrIndex;
     printf("Trying to reset PCR%d...\n", cmdIn.pcrReset.pcrHandle);
     rc = TPM2_PCR_Reset(&cmdIn.pcrReset);
     if (rc != TPM_RC_SUCCESS) {

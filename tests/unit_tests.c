@@ -467,7 +467,8 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
     AssertIntEQ(rc, 0);
 
     /* Verify TPM signature with wolfCrypt */
-    rc = wc_ecc_verify_hash(sig, sigSz, digest, digestSz, &verifyRes, &wolfKey);
+    rc = wc_ecc_verify_hash(sig, (word32)sigSz, digest, (word32)digestSz,
+        &verifyRes, &wolfKey);
     AssertIntEQ(rc, 0);
     AssertIntEQ(verifyRes, 1); /* 1 indicates successful verification */
 
@@ -487,8 +488,8 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
 
     /* Sign with wolfCrypt */
     sigSz = (word32)sizeof(sig);
-    rc = wc_ecc_sign_hash(digest, digestSz, sig, &sigSz, wolfTPM2_GetRng(dev),
-        &wolfKey);
+    rc = wc_ecc_sign_hash(digest, (word32)digestSz, sig, &sigSz,
+        wolfTPM2_GetRng(dev), &wolfKey);
     AssertIntEQ(rc, 0);
 
     /* Decode ECDSA Header */
@@ -504,10 +505,10 @@ static void test_wolfTPM2_EccSignVerifyDig(WOLFTPM2_DEV* dev,
     AssertIntEQ(rc, 0);
 
     /* combine R and S at key size (zero pad leading) */
-    XMEMMOVE(&sigRs[curveSize-rLen], r, rLen);
-    XMEMSET(&sigRs[0], 0, curveSize-rLen);
-    XMEMMOVE(&sigRs[curveSize + (curveSize-sLen)], s, sLen);
-    XMEMSET(&sigRs[curveSize], 0, curveSize-sLen);
+    XMEMMOVE(&sigRs[curveSize-(int)rLen], r, rLen);
+    XMEMSET(&sigRs[0], 0, (size_t)(curveSize-(int)rLen));
+    XMEMMOVE(&sigRs[curveSize + (curveSize-(int)sLen)], s, sLen);
+    XMEMSET(&sigRs[curveSize], 0, (size_t)(curveSize-(int)sLen));
 
     /* Verify wolfCrypt signature with TPM */
     rc = wolfTPM2_VerifyHashScheme(dev, &eccKey, sigRs, curveSize*2,
@@ -793,7 +794,7 @@ static void test_wolfTPM2_KeyBlob(TPM_ALG_ID alg)
         NULL, &privBufferSz, &key);
     AssertIntEQ(rc, LENGTH_ONLY_E);
 
-    AssertIntLT(pubBufferSz + privBufferSz, sizeof(blob));
+    AssertIntLT((int)(pubBufferSz + privBufferSz), (int)sizeof(blob));
 
     /* Test exporting private and public parts separately */
     rc = wolfTPM2_GetKeyBlobAsSeparateBuffers(blob, &pubBufferSz,
@@ -812,7 +813,7 @@ static void test_wolfTPM2_KeyBlob(TPM_ALG_ID alg)
     XMEMSET(&key, 0, sizeof(key));
 
     /* Load key blob (private/public) from buffer */
-    rc = wolfTPM2_SetKeyBlobFromBuffer(&key, blob, rc);
+    rc = wolfTPM2_SetKeyBlobFromBuffer(&key, blob, (word32)rc);
     AssertIntEQ(rc, 0);
     key.handle.auth.size = sizeof(gKeyAuth)-1;
     XMEMCPY(key.handle.auth.buffer, gKeyAuth, key.handle.auth.size);

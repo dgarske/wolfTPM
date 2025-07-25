@@ -147,9 +147,9 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
                 int oid;
                 oid = TPM2_GetHashType(hashAlg);
                 oid = wc_HashGetOID((enum wc_HashType)oid);
-                rc = wc_EncodeSignature(encHash, hash, hashSz, oid);
+                rc = (int)wc_EncodeSignature(encHash, hash, (word32)hashSz, oid);
                 if (rc > 0) {
-                    hashSz = rc;
+                    hashSz = (word32)rc;
                 #ifdef WOLFTPM_DEBUG_VERBOSE
                     printf("Encoded Hash %d\n", hashSz);
                     printHexString(encHash, hashSz, 32);
@@ -158,10 +158,10 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
                 }
             }
             if (rc == 0) {
-                *sigSz = wc_RsaEncryptSize(&key.rsa);
+                *sigSz = (word32)wc_RsaEncryptSize(&key.rsa);
                 rc = wc_RsaSSL_Sign(encHash, hashSz, sig, *sigSz, &key.rsa, &rng);
                 if (rc >= 0) {
-                    *sigSz = rc;
+                    *sigSz = (word32)rc;
                     rc = 0;
                 }
             }
@@ -188,13 +188,13 @@ static int PolicySign(TPM_ALG_ID alg, const char* keyFile, const char* password,
                     rc = wc_ecc_sign_hash_ex(hash, hashSz, &rng, &key.ecc, &r, &s);
                 }
                 if (rc == 0) {
-                    word32 keySz = key.ecc.dp->size, rSz, sSz;
+                    word32 keySz = (word32)key.ecc.dp->size, rSz, sSz;
                     *sigSz = keySz * 2;
                     XMEMSET(sig, 0, *sigSz);
                     /* export sign r/s - zero pad to key size */
-                    rSz = mp_unsigned_bin_size(&r);
+                    rSz = (word32)mp_unsigned_bin_size(&r);
                     mp_to_unsigned_bin(&r, &sig[keySz - rSz]);
-                    sSz = mp_unsigned_bin_size(&s);
+                    sSz = (word32)mp_unsigned_bin_size(&s);
                     mp_to_unsigned_bin(&s, &sig[keySz + (keySz - sSz)]);
                     mp_clear(&r);
                     mp_clear(&s);
@@ -276,9 +276,10 @@ int TPM2_PCR_PolicySign_Example(void* userCtx, int argc, char *argv[])
             const char* hashHexStr = argv[argc-1] + XSTRLEN("-pcrdigest=");
             int hashHexStrLen = (int)XSTRLEN(hashHexStr);
             if (hashHexStrLen > (int)sizeof(pcrDigest)*2+1)
-                pcrDigestSz = -1;
+                pcrDigestSz = -1U;
             else
-                pcrDigestSz = hexToByte(hashHexStr, pcrDigest, hashHexStrLen);
+                pcrDigestSz = (word32)hexToByte(hashHexStr, pcrDigest,
+                    (unsigned long)hashHexStrLen);
             if (pcrDigestSz <= 0) {
                 fprintf(stderr, "Invalid PCR hash length\n");
                 usage();
@@ -358,7 +359,7 @@ int TPM2_PCR_PolicySign_Example(void* userCtx, int argc, char *argv[])
 
     /* Build PCR Policy to Sign */
     XMEMSET(digest, 0, sizeof(digest));
-    digestSz = TPM2_GetHashDigestSize(pcrAlg);
+    digestSz = (word32)TPM2_GetHashDigestSize(pcrAlg);
     rc = wolfTPM2_PolicyPCRMake(pcrAlg, pcrArray, pcrArraySz,
         pcrDigest, pcrDigestSz, digest, &digestSz);
     if (rc != 0) goto exit;
@@ -388,7 +389,7 @@ int TPM2_PCR_PolicySign_Example(void* userCtx, int argc, char *argv[])
 
             /* Policy Digest used for creation of a keyed hash */
             XMEMSET(digest, 0, sizeof(digest));
-            digestSz = TPM2_GetHashDigestSize(pcrAlg);
+            digestSz = (word32)TPM2_GetHashDigestSize(pcrAlg);
             rc = wolfTPM2_PolicyAuthorizeMake(pcrAlg, &authPubKey.pub,
                 digest, &digestSz, NULL, 0);
             if (rc == 0) {

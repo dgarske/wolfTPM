@@ -196,11 +196,11 @@ int TPM2_EndorsementCertVerify_Example(void* userCtx, int argc, char *argv[])
 
     if (rc == 0) {
         /* Parse device certificate and extract public key */
-        rc = TPM2_ASN_DecodeX509Cert(cert, certSz, &ekX509);
+        rc = TPM2_ASN_DecodeX509Cert(cert, (int)certSz, &ekX509);
         if (rc == 0) {
             /* Parse RSA Public Key Raw Modulus */
-            rc = TPM2_ASN_DecodeRsaPubKey((uint8_t*)ekX509.publicKey, ekX509.pubKeySz,
-                &ekPub);
+            rc = TPM2_ASN_DecodeRsaPubKey((uint8_t*)ekX509.publicKey,
+                (int)ekX509.pubKeySz, &ekPub);
         }
     }
 
@@ -240,7 +240,7 @@ int TPM2_EndorsementCertVerify_Example(void* userCtx, int argc, char *argv[])
         if (rc == 0) {
             /* Parse RSA Public Key Raw Modulus */
             rc = TPM2_ASN_DecodeRsaPubKey((uint8_t*)issuerX509.publicKey,
-                issuerX509.pubKeySz, &issuer.pub);
+                (int)issuerX509.pubKeySz, &issuer.pub);
         }
     }
     if (rc == 0) {
@@ -270,14 +270,14 @@ int TPM2_EndorsementCertVerify_Example(void* userCtx, int argc, char *argv[])
         /* RSA Public Decrypt EK certificate signature */
         rc = wolfTPM2_RsaEncrypt(&dev, &issuer,
             TPM_ALG_NULL, /* no padding */
-            ekX509.signature, ekX509.sigSz,
+            ekX509.signature, (int)ekX509.sigSz,
             sig, &sigSz);
         if (rc != 0) {
             printf("RSA Public Failed!\n");
             goto exit;
         }
         printf("Decrypted Sig: %d\n", sigSz);
-        dump_hex_bytes(sig, sigSz);
+        dump_hex_bytes(sig, (word32)sigSz);
     }
 
     if (rc == 0) {
@@ -296,7 +296,7 @@ int TPM2_EndorsementCertVerify_Example(void* userCtx, int argc, char *argv[])
         dump_hex_bytes(hashBuf, hashSz);
 
         printf("Sig Hash: %d\n", sigDigestSz);
-        dump_hex_bytes(sigDigest, sigDigestSz);
+        dump_hex_bytes(sigDigest, (word32)sigDigestSz);
 
         /* Compare certificate hash with signature hash */
         if (sigDigestSz == (int)hashSz &&

@@ -322,11 +322,11 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         /* set session for authorization key */
         if (authStr != NULL) {
             /* Use provided custom auth */
-            auth.size = (int)XSTRLEN(authStr);
+            auth.size = (UINT16)XSTRLEN(authStr);
             XMEMCPY(auth.buffer, authStr, auth.size);
         }
         else {
-            auth.size = (int)sizeof(gAiKeyAuth)-1;
+            auth.size = (UINT16)sizeof(gAiKeyAuth)-1;
             XMEMCPY(auth.buffer, gAiKeyAuth, auth.size);
         }
     }
@@ -362,11 +362,11 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         /* set session for authorization key */
         if (authStr != NULL) {
             /* Use provided custom auth key */
-            auth.size = (int)XSTRLEN(authStr);
+            auth.size = (UINT16)XSTRLEN(authStr);
             XMEMCPY(auth.buffer, authStr, auth.size);
         }
         else {
-            auth.size = (int)sizeof(gKeyAuth)-1;
+            auth.size = (UINT16)sizeof(gKeyAuth)-1;
             XMEMCPY(auth.buffer, gKeyAuth, auth.size);
         }
     }

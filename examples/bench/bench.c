@@ -136,7 +136,7 @@ static int bench_sym_hash(WOLFTPM2_DEV* dev, const char* desc, int algo,
     XMEMSET(&hash, 0, sizeof(hash));
     bench_stats_start(&count, &start);
     do {
-        rc = wolfTPM2_HashStart(dev, &hash, algo,
+        rc = wolfTPM2_HashStart(dev, &hash, (TPMI_ALG_HASH)algo,
         (const byte*)gUsageAuth, sizeof(gUsageAuth)-1);
         if (rc != 0) goto exit;
         rc = wolfTPM2_HashUpdate(dev, &hash, in, inSz);
@@ -144,7 +144,7 @@ static int bench_sym_hash(WOLFTPM2_DEV* dev, const char* desc, int algo,
         rc = wolfTPM2_HashFinish(dev, &hash, digest, &digestSz);
         if (rc != 0) goto exit;
     } while (bench_stats_check(start, &count, maxDuration));
-    bench_stats_sym_finish(desc, count, inSz, start);
+    bench_stats_sym_finish(desc, count, (int)inSz, start);
 
 exit:
     wolfTPM2_UnloadHandle(dev, &hash.handle);
@@ -162,8 +162,8 @@ static int bench_sym_aes(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* storageKey,
     WOLFTPM2_KEY aesKey;
 
     XMEMSET(&aesKey, 0, sizeof(aesKey));
-    rc = wolfTPM2_GetKeyTemplate_Symmetric(&publicTemplate, keyBits, algo,
-        YES, YES);
+    rc = wolfTPM2_GetKeyTemplate_Symmetric(&publicTemplate, keyBits,
+        (TPM_ALG_ID)algo, YES, YES);
     if (rc != 0) goto exit;
     rc = wolfTPM2_CreateAndLoadKey(dev, &aesKey, &storageKey->handle,
         &publicTemplate, (byte*)gUsageAuth, sizeof(gUsageAuth)-1);
@@ -183,7 +183,7 @@ static int bench_sym_aes(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* storageKey,
         }
         if (rc != 0) goto exit;
     } while (bench_stats_check(start, &count, maxDuration));
-    bench_stats_sym_finish(desc, count, inOutSz, start);
+    bench_stats_sym_finish(desc, count, (int)inOutSz, start);
 
 exit:
     wolfTPM2_UnloadHandle(dev, &aesKey.handle);
@@ -375,7 +375,7 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
 
     /* Perform RSA encrypt / decrypt (no pad) */
     message.size = 256; /* test message 0x11,0x11,etc */
-    XMEMSET(message.buffer, 0x11, message.size);
+    XMEMSET(message.buffer, 0x11, (size_t)message.size);
 
     bench_stats_start(&count, &start);
     do {
@@ -398,7 +398,7 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
 
     /* Perform RSA encrypt / decrypt (OAEP pad) */
     message.size = TPM_SHA256_DIGEST_SIZE; /* test message 0x11,0x11,etc */
-    XMEMSET(message.buffer, 0x11, message.size);
+    XMEMSET(message.buffer, 0x11, (size_t)message.size);
 
     bench_stats_start(&count, &start);
     do {
@@ -442,7 +442,7 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
 
     /* Perform sign / verify */
     message.size = TPM_SHA256_DIGEST_SIZE; /* test message 0x11,0x11,etc */
-    XMEMSET(message.buffer, 0x11, message.size);
+    XMEMSET(message.buffer, 0x11, (size_t)message.size);
 
     bench_stats_start(&count, &start);
     do {

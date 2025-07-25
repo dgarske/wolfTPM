@@ -120,7 +120,7 @@ int TPM2_KDFa(
         return ret;
 
     /* generate required bytes - blocks sized digest */
-    for (pos = 0; pos < keySz; pos += hLen) {
+    for (pos = 0; pos < keySz; pos += (word32)hLen) {
         /* KDFa counter starts at 1 */
         counter++;
         copyLen = hLen;
@@ -139,7 +139,7 @@ int TPM2_KDFa(
         }
         /* add label - KDFa label */
         if (ret == 0 && label != NULL) {
-            ret = wc_HmacUpdate(&hmac_ctx, (byte*)label, lLen);
+            ret = wc_HmacUpdate(&hmac_ctx, (byte*)label, (word32)lLen);
         }
 
         /* add contextU */
@@ -167,13 +167,13 @@ int TPM2_KDFa(
         }
 
         if ((UINT32)hLen > keySz - pos) {
-          copyLen = keySz - pos;
+          copyLen = (int)(keySz - pos);
         }
 
-        XMEMCPY(keyStream, hash, copyLen);
+        XMEMCPY(keyStream, hash, (size_t)copyLen);
         keyStream += copyLen;
     }
-    ret = keySz;
+    ret = (int)keySz;
 
 exit:
     wc_HmacFree(&hmac_ctx);
@@ -309,7 +309,7 @@ static int TPM2_ParamEnc_AESCFB(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
     /* Generate AES Key and IV */
     XMEMSET(symKey, 0, sizeof(symKey));
     rc = TPM2_KDFa(session->authHash, &keyIn, "CFB",
-        nonceCaller, nonceTPM, symKey, symKeySz + symKeyIvSz);
+        nonceCaller, nonceTPM, symKey, (UINT32)(symKeySz + symKeyIvSz));
     if (rc != symKeySz + symKeyIvSz) {
     #ifdef DEBUG_WOLFTPM
         printf("KDFa CFB Gen Error %d\n", rc);
@@ -326,7 +326,7 @@ static int TPM2_ParamEnc_AESCFB(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
     /* Perform AES CFB Encryption */
     rc = wc_AesInit(&enc, NULL, INVALID_DEVID);
     if (rc == 0) {
-        rc = wc_AesSetKey(&enc, symKey, symKeySz, &symKey[symKeySz],
+        rc = wc_AesSetKey(&enc, symKey, (word32)symKeySz, &symKey[symKeySz],
             AES_ENCRYPTION);
         if (rc == 0) {
             rc = wc_AesCfbEncrypt(&enc, paramData, paramData, paramSz);
@@ -364,7 +364,7 @@ static int TPM2_ParamDec_AESCFB(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
     /* Generate AES Key and IV */
     XMEMSET(symKey, 0, sizeof(symKey));
     rc = TPM2_KDFa(session->authHash, &keyIn, "CFB",
-        nonceTPM, nonceCaller, symKey, symKeySz + symKeyIvSz);
+        nonceTPM, nonceCaller, symKey, (UINT32)(symKeySz + symKeyIvSz));
     if (rc != symKeySz + symKeyIvSz) {
     #ifdef DEBUG_WOLFTPM
         printf("KDFa CFB Gen Error %d\n", rc);
@@ -381,7 +381,7 @@ static int TPM2_ParamDec_AESCFB(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
     /* Perform AES CFB Decryption */
     rc = wc_AesInit(&dec, NULL, INVALID_DEVID);
     if (rc == 0) {
-        rc = wc_AesSetKey(&dec, symKey, symKeySz, &symKey[symKeySz],
+        rc = wc_AesSetKey(&dec, symKey, (word32)symKeySz, &symKey[symKeySz],
             AES_ENCRYPTION);
         if (rc == 0) {
             rc = wc_AesCfbDecrypt(&dec, paramData, paramData, paramSz);
@@ -413,7 +413,7 @@ int TPM2_CalcCpHash(TPMI_ALG_HASH authHash, TPM_CC cmdCode,
     rc = wc_HashGetDigestSize(hashType);
     if (rc < 0)
         return rc;
-    hash->size = rc;
+    hash->size = (UINT16)rc;
 
     /* Hash of data (name) goes into remainder */
     rc = wc_HashInit(&hash_ctx, hashType);
@@ -486,7 +486,7 @@ int TPM2_CalcRpHash(TPMI_ALG_HASH authHash,
     rc = wc_HashGetDigestSize(hashType);
     if (rc < 0)
         return rc;
-    hash->size = rc;
+    hash->size = (UINT16)rc;
 
     /* Hash of data (name) goes into remainder */
     rc = wc_HashInit(&hash_ctx, hashType);
@@ -535,8 +535,8 @@ int TPM2_CalcHmac(TPMI_ALG_HASH authHash, TPM2B_AUTH* auth,
     /* use authHash for hmac hash algorithm */
     rc = TPM2_GetHashType(authHash);
     hashType = (enum wc_HashType)rc;
-    hmac->size = TPM2_GetHashDigestSize(authHash);
-    if (hmac->size <= 0)
+    hmac->size = (UINT16)TPM2_GetHashDigestSize(authHash);
+    if (hmac->size == 0)
         return BAD_FUNC_ARG;
 
     /* setup HMAC */
@@ -550,10 +550,10 @@ int TPM2_CalcHmac(TPMI_ALG_HASH authHash, TPM2B_AUTH* auth,
         printf("HMAC Key: %d\n", auth->size);
         TPM2_PrintBin(auth->buffer, auth->size);
     #endif
-        rc = wc_HmacSetKey(&hmac_ctx, hashType, auth->buffer, auth->size);
+        rc = wc_HmacSetKey(&hmac_ctx, (int)hashType, auth->buffer, auth->size);
     }
     else {
-        rc = wc_HmacSetKey(&hmac_ctx, hashType, NULL, 0);
+        rc = wc_HmacSetKey(&hmac_ctx, (int)hashType, NULL, 0);
     }
 
     /* pHash - hash of command code and parameters */

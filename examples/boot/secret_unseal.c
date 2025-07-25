@@ -292,7 +292,7 @@ int TPM2_Boot_SecretUnseal_Example(void* userCtx, int argc, char *argv[])
 
     sigAlg = alg == TPM_ALG_RSA ? TPM_ALG_RSASSA : TPM_ALG_ECDSA;
     rc = wolfTPM2_VerifyHashTicket(&dev, &authKey,
-        sig, sigSz, policyDigest, policyDigestSz,
+        sig, (int)sigSz, policyDigest, (int)policyDigestSz,
         sigAlg, pcrAlg, &checkTicket);
     if (rc != TPM_RC_SUCCESS) {
         printf("wolfTPM2_VerifyHashTicket failed!\n");

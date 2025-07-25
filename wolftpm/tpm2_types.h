@@ -836,7 +836,7 @@ static inline word16 ByteReverseWord16(word16 value)
 #elif defined(__GNUC_PREREQ) && __GNUC_PREREQ(4, 3)
     return (word16)__builtin_bswap16(value);
 #else
-    return (value >> 8) | (value << 8);
+    return (word16)((value >> 8) | (value << 8));
 #endif
 }
 

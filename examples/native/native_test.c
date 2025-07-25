@@ -295,7 +295,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         goto exit;
     }
     tpmProp = &cmdOut.cap.capabilityData.data.tpmProperties;
-    pcrCount = tpmProp->tpmProperty[0].value;
+    pcrCount = (int)tpmProp->tpmProperty[0].value;
     printf("TPM2_GetCapability: Property PCR Count %d\n", pcrCount);
 
 
@@ -449,11 +449,11 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     /* Working with PCR16 because of next PCR Reset test */
     pcrIndex = TPM2_TEST_PCR;
     XMEMSET(&cmdIn.pcrExtend, 0, sizeof(cmdIn.pcrExtend));
-    cmdIn.pcrExtend.pcrHandle = pcrIndex;
+    cmdIn.pcrExtend.pcrHandle = (TPMI_DH_PCR)pcrIndex;
     cmdIn.pcrExtend.digests.count = 1;
     cmdIn.pcrExtend.digests.digests[0].hashAlg = TEST_WRAP_DIGEST;
     for (i=0; i<TPM_SHA256_DIGEST_SIZE; i++) {
-        cmdIn.pcrExtend.digests.digests[0].digest.H[i] = i;
+        cmdIn.pcrExtend.digests.digests[0].digest.H[i] = (BYTE)i;
     }
     rc = TPM2_PCR_Extend(&cmdIn.pcrExtend);
     if (rc != TPM_RC_SUCCESS) {
@@ -488,7 +488,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     */
     pcrIndex = TPM2_TEST_PCR;
     XMEMSET(&cmdIn.pcrReset, 0, sizeof(cmdIn.pcrReset));
-    cmdIn.pcrReset.pcrHandle = pcrIndex;
+    cmdIn.pcrReset.pcrHandle = (TPMI_DH_PCR)pcrIndex;
     rc = TPM2_PCR_Reset(&cmdIn.pcrReset);
     if (rc != TPM_RC_SUCCESS) {
         printf("TPM2_PCR_Reset failed 0x%x: %s\n", rc,
@@ -546,7 +546,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
 
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     /* calculate session key */
-    sessionAuth.size = TPM2_GetHashDigestSize(cmdIn.authSes.authHash);
+    sessionAuth.size = (UINT16)TPM2_GetHashDigestSize(cmdIn.authSes.authHash);
     rc = TPM2_KDFa(cmdIn.authSes.authHash, NULL, "ATH",
             &cmdOut.authSes.nonceTPM, &cmdIn.authSes.nonceCaller,
             sessionAuth.buffer, sessionAuth.size);
@@ -598,7 +598,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
     session[0].symmetric.algorithm = TPM_ALG_AES;
     session[0].symmetric.keyBits.aes = 128;
     session[0].symmetric.mode.aes = TPM_ALG_CFB;
-    session[0].nonceCaller.size = TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST);
+    session[0].nonceCaller.size = (UINT16)TPM2_GetHashDigestSize(WOLFTPM2_WRAP_DIGEST);
     session[0].auth = sessionAuth;
 
     /* Policy PCR (Get) */
@@ -653,7 +653,7 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
 
     XMEMSET(&cmdIn.seqUpdate, 0, sizeof(cmdIn.seqUpdate));
     cmdIn.seqUpdate.sequenceHandle = handle;
-    cmdIn.seqUpdate.buffer.size = XSTRLEN(hashTestData);
+    cmdIn.seqUpdate.buffer.size = (UINT16)XSTRLEN(hashTestData);
     XMEMCPY(cmdIn.seqUpdate.buffer.buffer, hashTestData,
         cmdIn.seqUpdate.buffer.size);
     rc = TPM2_SequenceUpdate(&cmdIn.seqUpdate);

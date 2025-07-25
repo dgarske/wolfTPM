@@ -214,7 +214,7 @@ int TPM2_NVRAM_Read_Example(void* userCtx, int argc, char *argv[])
             readSize = sizeof(UINT16) + keyBlob.pub.size; /* account for TPM2B size marker */
             printf("Trying to read %d bytes of public key part from NV\n", keyBlob.pub.size);
             rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex,
-                pubAreaBuffer, &readSize, offset);
+                pubAreaBuffer, &readSize, (word32)offset);
             if (rc != 0) goto exit;
             printf("Successfully read public key part from NV\n\n");
             offset += readSize;
@@ -236,7 +236,7 @@ int TPM2_NVRAM_Read_Example(void* userCtx, int argc, char *argv[])
             printf("Trying to read size marker of the private key part from NV\n");
             readSize = sizeof(keyBlob.priv.size);
             rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex,
-                (byte*)&keyBlob.priv.size, &readSize, offset);
+                (byte*)&keyBlob.priv.size, &readSize, (word32)offset);
             if (rc != 0) {
                 printf("Was a private key part written? (see nvram/store)\n");
                 goto exit;
@@ -247,7 +247,7 @@ int TPM2_NVRAM_Read_Example(void* userCtx, int argc, char *argv[])
             readSize = keyBlob.priv.size;
             printf("Trying to read %d bytes of private key part from NV\n", readSize);
             rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex,
-                (byte*)&keyBlob.priv.buffer, &readSize, offset);
+                (byte*)&keyBlob.priv.buffer, &readSize, (word32)offset);
             if (rc != 0) goto exit;
             printf("Successfully read private key part from NV\n\n");
         }

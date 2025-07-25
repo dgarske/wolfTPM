@@ -245,7 +245,7 @@ int TPM2_PCR_Quote_Test(void* userCtx, int argc, char *argv[])
 #if !defined(NO_FILESYSTEM) && !defined(NO_WRITE_TEMP_FILES)
     f = XFOPEN(outputFile, "wb");
     if (f != XBADFILE) {
-        dataSz = (int)XFWRITE(data, 1, dataSz, f);
+        dataSz = (int)XFWRITE(data, 1, (size_t)dataSz, f);
         XFCLOSE(f);
     }
     printf("Wrote %d bytes to %s\n", dataSz, outputFile);

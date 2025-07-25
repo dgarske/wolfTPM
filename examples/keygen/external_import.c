@@ -155,7 +155,7 @@ int TPM2_ExternalImport_Example(void* userCtx, int argc, char *argv[])
 
     /* Generate random seed */
     XMEMSET(&seedValue, 0, sizeof(seedValue));
-    seedValue.size = TPM2_GetHashDigestSize(TPM_ALG_SHA256);
+    seedValue.size = (UINT16)TPM2_GetHashDigestSize(TPM_ALG_SHA256);
 #ifndef USE_TEST_SEED
     TPM2_GetNonce(seedValue.buffer, seedValue.size);
 #else

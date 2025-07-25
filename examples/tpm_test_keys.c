@@ -105,14 +105,14 @@ int readBin(const char* filename, byte *buf, word32* bufSz)
     fp = XFOPEN(filename, "rb");
     if (fp != XBADFILE) {
         XFSEEK(fp, 0, XSEEK_END);
-        fileSz = XFTELL(fp);
+        fileSz = (size_t)XFTELL(fp);
         XREWIND(fp);
         if (fileSz > (size_t)*bufSz) {
             printf("File size check failed\n");
             rc = BUFFER_E;
         }
         else {
-            *bufSz = (int)fileSz;
+            *bufSz = (word32)fileSz;
         #ifdef DEBUG_WOLFTPM
             printf("Reading %d bytes from %s\n", (int)fileSz, filename);
         #endif
@@ -189,7 +189,7 @@ int readKeyBlob(const char* filename, WOLFTPM2_KEYBLOB* key)
     fp = XFOPEN(filename, "rb");
     if (fp != XBADFILE) {
         XFSEEK(fp, 0, XSEEK_END);
-        fileSz = XFTELL(fp);
+        fileSz = (size_t)XFTELL(fp);
         XREWIND(fp);
         if (fileSz > sizeof(key->priv) + sizeof(key->pub)) {
             printf("File size check failed\n");
@@ -313,8 +313,8 @@ int createAndLoadKey(WOLFTPM2_DEV* pDev, WOLFTPM2_KEY* key,
 
     key->handle = keyblob.handle;
     key->pub    = keyblob.pub;
-    key->handle.auth.size = authSz;
-    XMEMCPY(key->handle.auth.buffer, auth, authSz);
+    key->handle.auth.size = (UINT16)authSz;
+    XMEMCPY(key->handle.auth.buffer, auth, (size_t)authSz);
 
     return rc;
 }
@@ -345,8 +345,8 @@ int readAndLoadKey(WOLFTPM2_DEV* pDev, WOLFTPM2_KEY* key,
 
     key->handle = keyblob.handle;
     key->pub    = keyblob.pub;
-    key->handle.auth.size = authSz;
-    XMEMCPY(key->handle.auth.buffer, auth, authSz);
+    key->handle.auth.size = (UINT16)authSz;
+    XMEMCPY(key->handle.auth.buffer, auth, (size_t)authSz);
 
     return rc;
 }
@@ -479,7 +479,7 @@ int loadFile(const char* fname, byte** buf, size_t* bufLen)
     if (fileSz > 0) {
         if (*buf == NULL) {
         #if !defined(WOLFTPM2_NO_HEAP)
-            *buf = (byte*)XMALLOC(fileSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+            *buf = (byte*)XMALLOC((size_t)fileSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
             if (*buf == NULL)
                 ret = MEMORY_E;
         #endif
@@ -489,7 +489,7 @@ int loadFile(const char* fname, byte** buf, size_t* bufLen)
         }
         *bufLen = (size_t)fileSz;
         if (ret == 0) {
-            readLen = XFREAD(*buf, 1, *bufLen, fp);
+            readLen = (ssize_t)XFREAD(*buf, 1, (size_t)*bufLen, fp);
             ret = (readLen == (ssize_t)*bufLen) ? 0 : -1;
         }
     }
