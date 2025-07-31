@@ -4746,6 +4746,13 @@ int wolfTPM2_NVCreateAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_HANDLE* parent,
         return BAD_FUNC_ARG;
     }
 
+#ifdef DEBUG_WOLFTPM
+    printf("wolfTPM2_NVCreateAuthPolicy: parent 0x%x, nvIndex 0x%x, "
+        "nvAttributes 0x%x, maxSize %d, authSz %d, authPolicySz %d\n",
+        (word32)parent->hndl, nvIndex, nvAttributes, maxSize, authSz,
+        authPolicySz);
+#endif
+
     /* set session auth for key */
     if (dev->ctx.session && !parent->policyAuth) {
         rc = wolfTPM2_SetAuthHandle(dev, 0, parent);
@@ -4895,7 +4902,7 @@ static int wolfTPM2_NVWriteData(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
             in.write.offset = offset+pos;
         }
 
-    #ifdef DEBUG_WOLFTPM
+    #ifdef WOLFTPM_DEBUG_VERBOSE
         printf("wolfTPM2_NVWriteData: Auth 0x%x, Idx 0x%x, Offset %d, Size %d, "
             "Extend %d\n",
             (word32)in.write.authHandle, (word32)in.write.nvIndex,
@@ -5027,7 +5034,7 @@ int wolfTPM2_NVReadAuthPolicy(WOLFTPM2_DEV* dev, WOLFTPM2_SESSION* tpmSession,
             XMEMCPY(&dataBuf[pos], out.data.buffer, toread);
         }
 
-    #ifdef DEBUG_WOLFTPM
+    #ifdef WOLFTPM_DEBUG_VERBOSE
         printf("TPM2_NV_Read: Auth 0x%x, Idx 0x%x, Offset %d, Size %d\n",
             (word32)in.authHandle, (word32)in.nvIndex, in.offset,
             out.data.size);
@@ -5175,13 +5182,18 @@ int wolfTPM2_NVReadPublic(WOLFTPM2_DEV* dev, word32 nvIndex,
     rc = TPM2_NV_ReadPublic(&in, &out);
     if (rc != TPM_RC_SUCCESS) {
     #ifdef DEBUG_WOLFTPM
-        printf("TPM2_NV_ReadPublic failed %d: %s\n", rc,
-            wolfTPM2_GetRCString(rc));
+        #ifndef WOLFTPM_DEBUG_VERBOSE
+        if ((rc & RC_MAX_FMT1) != TPM_RC_HANDLE)
+        #endif
+        {
+            printf("TPM2_NV_ReadPublic failed %d: %s\n", rc,
+                wolfTPM2_GetRCString(rc));
+        }
     #endif
         return rc;
     }
 
-#ifdef DEBUG_WOLFTPM
+#ifdef WOLFTPM_DEBUG_VERBOSE
     printf("TPM2_NV_ReadPublic: Sz %d, Idx 0x%x, nameAlg %d, Attr 0x%x, "
             "authPol %d, dataSz %d, name %d\n",
         out.nvPublic.size,
