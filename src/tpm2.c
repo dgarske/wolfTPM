@@ -814,6 +814,9 @@ TPM_RC TPM2_IncrementalSelfTest(IncrementalSelfTest_In* in,
         rc = TPM2_SendCommand(ctx, &packet);
         if (rc == TPM_RC_SUCCESS) {
             TPM2_Packet_ParseU32(&packet, &out->toDoList.count);
+            if (out->toDoList.count > MAX_ALG_LIST_SIZE) {
+                out->toDoList.count = MAX_ALG_LIST_SIZE;
+            }
             for (i=0; i<(int)out->toDoList.count; i++) {
                 TPM2_Packet_ParseU16(&packet, &out->toDoList.algorithms[i]);
             }
