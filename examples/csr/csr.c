@@ -248,6 +248,11 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
                 curve, TPM_ALG_ECDSA);
         }
         if (rc == 0) {
+            /* Use P384 ECC key */
+            publicTemplate.nameAlg = TPM_ALG_SHA384;
+            publicTemplate.parameters.eccDetail.curveID = TPM_ECC_NIST_P384;
+            publicTemplate.parameters.eccDetail.scheme.details.ecdsa.hashAlg = TPM_ALG_SHA384;
+
             rc = getECCkey(&dev, &storageKey, &key, NULL, tpmDevId,
                   (byte*)gKeyAuth, sizeof(gKeyAuth)-1, &publicTemplate);
         }

@@ -133,6 +133,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
     TPMT_PUBLIC publicTemplate;
     TPMI_ALG_PUBLIC alg = TPM_ALG_RSA; /* default, see usage() for options */
     TPMI_ALG_PUBLIC srkAlg = TPM_ALG_ECC; /* prefer ECC, but allow RSA */
+    TPM_ECC_CURVE curve = TPM_ECC_NIST_P256;
     TPM_ALG_ID algSym = TPM_ALG_CTR; /* default Symmetric Cipher, see usage */
     TPM_ALG_ID paramEncAlg = TPM_ALG_NULL;
     WOLFTPM2_SESSION tpmSession;
@@ -197,6 +198,9 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
         }
         else if (XSTRCMP(argv[argc-1], "-xor") == 0) {
             paramEncAlg = TPM_ALG_XOR;
+        }
+        else if (XSTRCMP(argv[argc-1], "-p384") == 0) {
+            curve = TPM_ECC_NIST_P384;
         }
         else if (XSTRNCMP(argv[argc-1], "-unique=", XSTRLEN("-unique=")) == 0) {
             uniqueStr = argv[argc-1] + XSTRLEN("-unique=");
@@ -342,7 +346,7 @@ int TPM2_Keygen_Example(void* userCtx, int argc, char *argv[])
             rc = wolfTPM2_GetKeyTemplate_ECC(&publicTemplate,
                      TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
                      TPMA_OBJECT_sign | TPMA_OBJECT_noDA,
-                     TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+                     curve, TPM_ALG_ECDSA);
         }
         else if (alg == TPM_ALG_SYMCIPHER) {
             printf("Symmetric template\n");
