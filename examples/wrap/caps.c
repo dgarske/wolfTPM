@@ -126,6 +126,12 @@ int TPM2_Wrapper_CapsArgs(void* userCtx, int argc, char *argv[])
         printf("Found %d persistent handles\n", rc);
     }
 
+    /* List of NV indexes */
+    rc = wolfTPM2_GetHandles(NV_INDEX_FIRST, NULL);
+    if (rc >= 0) {
+        printf("Found %d NV handles\n", rc);
+    }
+
     /* Print the available PCR's */
     TPM2_PCRs_Print();
 
