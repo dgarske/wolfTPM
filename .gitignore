@@ -61,6 +61,7 @@ examples/tls/tls_server
 examples/tls/tls_client_notpm
 tests/unit.test
 examples/keygen/create_primary
+examples/keygen/keyduplicate
 examples/keygen/keyload
 examples/keygen/keygen
 examples/keygen/keyimport
@@ -170,3 +171,4 @@ UpgradeLog.htm
 # we won't track the actual working sdkconfig files
 /IDE/Espressif/**/sdkconfig
 /IDE/Espressif/**/sdkconfig.old
+

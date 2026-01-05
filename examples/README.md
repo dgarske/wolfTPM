@@ -325,6 +325,88 @@ Loaded key to 0x80000001
 
 The `keyload` tool takes only one argument, the filename of the stored key. Because the information what is key scheme (RSA or ECC) is contained within the key blob.
 
+## Key Duplication (Backup and Migration)
+
+The `keyduplicate` example demonstrates TPM 2.0 key duplication for backup, disaster recovery, and key migration between TPMs. This is essential for enterprise key management scenarios.
+
+### Use Cases
+
+- **Enterprise Key Backup**: Securely backup critical signing or encryption keys
+- **Key Migration**: Move keys when replacing hardware or upgrading devices
+- **Key Escrow**: Meet compliance requirements for key recovery
+- **Multi-Device Sharing**: Use the same key across multiple TPMs
+
+### How It Works
+
+TPM key duplication uses the `TPM2_Duplicate` and `TPM2_Import` commands. For a key to be duplicable, it must be created **without** the `fixedTPM` and `fixedParent` attributes.
+
+### Creating a Duplicable Key
+
+```
+$ ./examples/keygen/keyduplicate -create -rsa
+TPM2.0 Key Duplication Example
+	Mode: Create
+	Algorithm: RSA
+	Key Blob: keyblob.bin
+	Dup Blob: dupblob.bin
+	Use Parameter Encryption: NULL
+Creating new RSA duplicable key...
+  Attributes: 0x00040072
+  (fixedTPM: No, fixedParent: No)
+Created duplicable key (pub 280, priv 222 bytes)
+Saved key blob to keyblob.bin
+```
+
+### Exporting (Duplicating) a Key
+
+```
+$ ./examples/keygen/keyduplicate -export -keyblob=keyblob.bin -dupblob=dupblob.bin
+TPM2.0 Key Duplication Example
+	Mode: Export
+Read key blob: pub 280, priv 222 bytes
+Loaded key to handle 0x80000001
+Duplicating key...
+Key duplicated successfully!
+  Duplicate blob: 222 bytes
+  SymSeed: 0 bytes
+  EncryptionKey: 0 bytes
+Duplication blob saved to dupblob.bin
+```
+
+### Importing a Duplicated Key
+
+```
+$ ./examples/keygen/keyduplicate -import -dupblob=dupblob.bin -keyblob=imported.bin
+TPM2.0 Key Duplication Example
+	Mode: Import
+Read duplication blob:
+  Public: 280 bytes
+  Duplicate: 222 bytes
+Importing key...
+Key imported successfully!
+  New private blob: 222 bytes
+Imported key saved to imported.bin
+Verified: imported key loads successfully (handle 0x80000001)
+```
+
+### Complete Workflow Example
+
+```sh
+# 1. Create a duplicable key
+./examples/keygen/keyduplicate -create -rsa
+
+# 2. Use the key for signing/encryption (with other examples)
+./examples/keygen/keyload keyblob.bin
+
+# 3. Export the key for backup
+./examples/keygen/keyduplicate -export
+
+# 4. On another system or after TPM reset, import the key
+./examples/keygen/keyduplicate -import -dupblob=dupblob.bin -keyblob=restored.bin
+```
+
+**Note**: For secure transport between TPMs, the duplication can be encrypted to the target TPM's storage key public. This example uses `TPM_RH_NULL` for simplicity, which produces an unencrypted duplicate suitable for same-TPM reimport scenarios.
+
 ## Storing keys into the TPM's NVRAM
 
 These examples demonstrates how to use the TPM as a secure vault for keys. There are two programs, one to store a TPM key into the TPM's NVRAM and another to extract the key from the TPM's NVRAM. Both examples can use parameter encryption to protect from MITM attacks. The Non-volatile memory location is protected with a password authorization that is passed in encrypted form, when "-aes" is given on the command line.

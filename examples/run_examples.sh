@@ -287,6 +287,29 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ]; then
     # TODO: Add tests for -auth= keygen when used in example
 fi
 
+# Key Duplication Tests
+echo -e "Key Duplication Tests"
+if [ $NO_FILESYSTEM -eq 0 ]; then
+    # Create duplicable RSA key
+    ./examples/keygen/keyduplicate -create -rsa >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "keyduplicate create rsa failed! $RESULT" && exit 1
+    # Load the duplicable key to verify it works
+    ./examples/keygen/keyload keyblob.bin >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "keyload duplicable rsa failed! $RESULT" && exit 1
+
+    # Create duplicable ECC key
+    ./examples/keygen/keyduplicate -create -ecc >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "keyduplicate create ecc failed! $RESULT" && exit 1
+    # Load the duplicable key to verify it works
+    ./examples/keygen/keyload keyblob.bin >> $TPMPWD/run.out 2>&1
+    RESULT=$?
+    [ $RESULT -ne 0 ] && echo -e "keyload duplicable ecc failed! $RESULT" && exit 1
+
+    rm -f keyblob.bin
+fi
 
 # NV Tests
 echo -e "NV Tests"
