@@ -7828,19 +7828,6 @@ int wolfTPM2_CSR_MakeAndSign_ex(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
         return BAD_FUNC_ARG;
     }
 
-    /* Set signature type if not specified */
-    if (sigType == 0) {
-        if (keyType == RSA_TYPE) {
-            csr->req.sigType = CTC_SHA256wRSA;
-        }
-        else if (keyType == ECC_TYPE) {
-            csr->req.sigType = CTC_SHA256wECDSA;
-        }
-    }
-    else {
-        csr->req.sigType = sigType;
-    }
-
     /* Set version to 2 for self-signed certificates, 0 for regular CSRs per RFC2986 */
     if (selfSignCert) {
         csr->req.version = 2;
@@ -7851,6 +7838,18 @@ int wolfTPM2_CSR_MakeAndSign_ex(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
 
     /* Use new callback-based signing if devId not specified */
     if (devId == INVALID_DEVID) {
+        /* Set signature type if not specified */
+        if (sigType == 0) {
+            if (keyType == RSA_TYPE) {
+                csr->req.sigType = CTC_SHA256wRSA;
+            }
+            else if (keyType == ECC_TYPE) {
+                csr->req.sigType = CTC_SHA256wECDSA;
+            }
+        }
+        else {
+            csr->req.sigType = sigType;
+        }
         rc = CSR_MakeAndSign_Cb(dev, csr, key, keyType, outFormat, out, outSz,
             selfSignCert);
     }
