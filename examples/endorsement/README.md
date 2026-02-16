@@ -17,7 +17,7 @@ We have loaded some of the root and intermediate CA's into the trusted_certs.h f
 7) The URI for the CA issuer certificate can be obtained in `extAuthInfoCaIssuer`.
 8) Import the certificate public key and compare it against the primary EK public unique area.
 9) Use the wolfSSL Certificate Manager to validate the EK certificate. Trusted certificates are loaded using `wolfSSL_CertManagerLoadCABuffer` and the EK certificate is validated using `wolfSSL_CertManagerVerifyBuffer`.
-10) Optionally covert to PEM and export using `wc_DerToPem`.
+10) Optionally convert to PEM and export using `wc_DerToPem`.
 
 ## Example certificate chains
 

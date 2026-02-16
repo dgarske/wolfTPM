@@ -52,7 +52,7 @@
 
 /*
  * This example client connects to localhost on on port 11111 by default.
- * These can be overriden using `TLS_HOST` and `TLS_PORT`.
+ * These can be overridden using `TLS_HOST` and `TLS_PORT`.
  *
  * You can validate using the wolfSSL example server this like:
  *   ./examples/server/server -b -p 11111 -g

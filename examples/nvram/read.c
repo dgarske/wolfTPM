@@ -52,7 +52,7 @@ static void usage(void)
     printf("Expected usage:\n");
     printf("./examples/nvram/read [-nvindex] [-priv] [-pub] [-aes/-xor] [-delete]\n");
     printf("* -nvindex=[handle] (default 0x%x)\n", TPM2_DEMO_NVRAM_STORE_INDEX);
-    printf("* -priv: Read ony the private part\n");
+    printf("* -priv: Read only the private part\n");
     printf("* -pub: Read only the public part\n");
     printf("* -aes/xor: Use Parameter Encryption\n");
     printf("* -endorsement/platform/owner: Auth hierarchy\n");

@@ -104,7 +104,7 @@ The transfer of the challenge response containing the secret in plain (or used a
 
 The certify example shows how to use the `TPM2_Certify` API to sign the attestation info for another key. This can be used to prove that an object with a specific name is loaded into the TPM. A common example of this is using the restricted IAK to sign the attestation information for the IDevID.
 
-The create_primary example support creating RSA or ECC initial device identity (IDevID) and attestation identity (IAK) keys. These are created under the endorsement hierarchy and follow the "TPM 2.0 Keys for Device Identity and Attestation" TCG specification for setting up the primary key policies. Figures 10 and 11 fom this specification shows the IAK/IDevID policy.
+The create_primary example support creating RSA or ECC initial device identity (IDevID) and attestation identity (IAK) keys. These are created under the endorsement hierarchy and follow the "TPM 2.0 Keys for Device Identity and Attestation" TCG specification for setting up the primary key policies. Figures 10 and 11 from this specification shows the IAK/IDevID policy.
 
 ![Figure 10: Example IDevID Key Delegation Policy](tpm_idevid_policy.png)
 

@@ -63,7 +63,7 @@
  * Result is: ./certs/client-rsa-cert.pem and ./certs/client-ecc-cert.pem
  *
  * This example client connects to localhost on on port 11111 by default.
- * These can be overriden using `TLS_HOST` and `TLS_PORT`.
+ * These can be overridden using `TLS_HOST` and `TLS_PORT`.
  *
  * By default this example will load RSA keys unless RSA is disabled (NO_RSA)
  * or the TLS_USE_ECC build option is used.

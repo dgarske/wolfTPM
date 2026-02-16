@@ -566,7 +566,7 @@ static int esp_spi_master_init(void)
     return 0;
 }
 
-/* Aquire SPI bus and keep pulling CS */
+/* Acquire SPI bus and keep pulling CS */
 static int tpm_spi_acquire(void)
 {
     int ret;

@@ -936,7 +936,7 @@ Firmware update: LMS format required
 
 ## Device Identity and Attestation Keys
 
-The TCG published a specification for TPM manufacture guidance on setting up keys that can be used for device identiy and attestation.
+The TCG published a specification for TPM manufacture guidance on setting up keys that can be used for device identity and attestation.
 
 This feature has been tested with the ST33KTPM and is enabled with `WOLFTPM_MFG_IDENTITY`. The ST33KTPM samples are provisioned with a default master password enabled with `TEST_SAMPLE`. To define your own master password use `TPM2_IAK_SAMPLE_MASTER_PASSWORD`. The master password is hashed along with the device serial number to produce authentication for accessing these keys.
 
@@ -946,7 +946,7 @@ The default keys are ECDSA SECP384R1 with SHA2-384 and stored in NV Index define
 ### TPM Endorsement Key Certificates
 
 The TCG EK Credential Profile defines how manufacturers provision endorsement certificates in the TCG NV index range (see TPM_20_TCG_NV_SPACE).
-The `get_ek_certs` example shows how to retrieve those EK cerificates, validate them and create a primary EK handle for signing.
+The `get_ek_certs` example shows how to retrieve those EK certificates, validate them and create a primary EK handle for signing.
 See `./examples/endorsement/get_ek_certs`.
 
 

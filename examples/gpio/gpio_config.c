@@ -242,7 +242,7 @@ int TPM2_GPIO_Config_Example(void* userCtx, int argc, char *argv[])
     rc = wolfTPM2_NVCreateAuth(&dev, &parent, &nv, nvIndex, nvAttributes,
                                sizeof(BYTE), (byte*)gNvAuth, sizeof(gNvAuth)-1);
     if (rc != 0 && rc != TPM_RC_NV_DEFINED) {
-        printf("Creating NV Index for GPIO acccess failed\n");
+        printf("Creating NV Index for GPIO access failed\n");
         goto exit;
     }
     wolfTPM2_SetAuthHandle(&dev, 0, &nv.handle);

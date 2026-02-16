@@ -36,7 +36,7 @@
 #include <unistd.h>
 #include <stdint.h>
 
-/* Endianess helpers */
+/* Endianness helpers */
 #if defined(__MACH__) || defined(__APPLE__)
     #include <machine/endian.h>
     #include <libkern/OSByteOrder.h>

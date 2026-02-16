@@ -18,7 +18,7 @@ die() {
 build() {
     if [ ! -d "$SWTPM_DIR" ]; then
         echo "Cloning SWTPM from $SWTPM_GIT_URL to $SWTPM_DIR";
-        git clone $SWTPM_GIT_URL $SWTPM_DIR || die "unable to clone $SWTPM_GIT_URL for simualtor";
+        git clone $SWTPM_GIT_URL $SWTPM_DIR || die "unable to clone $SWTPM_GIT_URL for simulator";
     fi
     echo "Building SWTPM: $(git -C "$SWTPM_DIR" describe --long)";
     case "$OSTYPE" in

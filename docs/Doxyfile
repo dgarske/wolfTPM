@@ -794,7 +794,7 @@ CITE_BIB_FILES         =
 # messages are off.
 # The default value is: NO.
 
-# TODO set to YES for upsteaming
+# TODO set to YES for upstreaming
 QUIET                  = NO
 
 # The WARNINGS tag can be used to turn on/off the warning messages that are
