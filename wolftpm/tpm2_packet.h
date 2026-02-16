@@ -30,7 +30,7 @@
 
 #define TPM2_HEADER_SIZE 10 /* expected TPM2 header size */
 
-/* Endianess Helpers
+/* Endianness Helpers
  * Check if byte-order functions are already defined by the system:
  * U-boot defines these functions, so we need to check if they are
  * already defined.

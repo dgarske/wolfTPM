@@ -216,7 +216,7 @@ static int TPM2_ParamEnc_XOR(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
         keyIn.size += bindKey->size;
     }
 
-    /* Generate XOR Mask stream matching paramater size */
+    /* Generate XOR Mask stream matching parameter size */
     XMEMSET(mask.buffer, 0, sizeof(mask.buffer));
     rc = TPM2_KDFa(session->authHash, &keyIn, "XOR",
         nonceCaller, nonceTPM, mask.buffer, paramSz);
@@ -260,7 +260,7 @@ static int TPM2_ParamDec_XOR(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
         keyIn.size += bindKey->size;
     }
 
-    /* Generate XOR Mask stream matching paramater size */
+    /* Generate XOR Mask stream matching parameter size */
     XMEMSET(mask.buffer, 0, sizeof(mask.buffer));
     rc = TPM2_KDFa(session->authHash, &keyIn, "XOR",
         nonceTPM, nonceCaller, mask.buffer, paramSz);

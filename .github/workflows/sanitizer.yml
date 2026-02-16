@@ -1,0 +1,112 @@
+name: Sanitizer Tests
+
+on:
+  push:
+    branches: [ 'master', 'main', 'release/**' ]
+  pull_request:
+    branches: [ '*' ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build_wolfssl:
+    name: Build wolfSSL
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout wolfSSL
+        uses: actions/checkout@v4
+        with:
+          repository: wolfssl/wolfssl
+          path: wolfssl
+
+      - name: Build wolfSSL
+        working-directory: ./wolfssl
+        run: |
+          ./autogen.sh
+          ./configure --enable-wolftpm --enable-pkcallbacks
+          make -j$(nproc)
+          sudo make install
+          sudo ldconfig
+
+      - name: tar build-dir
+        run: tar -zcf wolfssl-install.tgz /usr/local/lib/libwolfssl* /usr/local/include/wolfssl
+
+      - name: Upload built lib
+        uses: actions/upload-artifact@v4
+        with:
+          name: wolfssl-install
+          path: wolfssl-install.tgz
+          retention-days: 5
+
+  sanitizer_test:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: build_wolfssl
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "ASan"
+            cflags: "-fsanitize=address -fno-omit-frame-pointer -g -O1"
+            ldflags: "-fsanitize=address"
+          - name: "UBSan"
+            cflags: "-fsanitize=undefined -fno-sanitize-recover=all -fno-omit-frame-pointer -g"
+            ldflags: "-fsanitize=undefined"
+          - name: "LeakSan"
+            cflags: "-fsanitize=leak -fno-omit-frame-pointer -g"
+            ldflags: "-fsanitize=leak"
+
+    steps:
+      - name: Workaround high-entropy ASLR
+        run: sudo sysctl vm.mmap_rnd_bits=28
+
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+
+      - name: Download wolfSSL
+        uses: actions/download-artifact@v4
+        with:
+          name: wolfssl-install
+
+      - name: Install wolfSSL
+        run: |
+          sudo tar -xzf wolfssl-install.tgz -C /
+          sudo ldconfig
+
+      - name: Setup ibmswtpm2
+        uses: actions/checkout@v4
+        with:
+          repository: kgoldman/ibmswtpm2
+          path: ibmswtpm2
+
+      - name: Build and start TPM simulator
+        working-directory: ./ibmswtpm2/src
+        run: |
+          make -j$(nproc)
+          ./tpm_server &
+          sleep 2
+
+      - name: Build wolfTPM with ${{ matrix.name }}
+        run: |
+          ./autogen.sh
+          ./configure --enable-swtpm \
+            CFLAGS="${{ matrix.cflags }}" LDFLAGS="${{ matrix.ldflags }}"
+          make -j$(nproc)
+
+      - name: Run tests
+        run: make check
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wolftpm-${{ matrix.name }}-logs
+          path: |
+            run.out
+            test-suite.log
+            config.log
+          retention-days: 5

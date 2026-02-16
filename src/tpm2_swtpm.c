@@ -134,7 +134,7 @@ static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
     int s;
     int fd = -1;
 
-    /* Zephyr doesnt support getaddrinfo;
+    /* Zephyr doesn't support getaddrinfo;
      * so we need to use Zephyr's socket API
      */
 #ifdef WOLFTPM_ZEPHYR

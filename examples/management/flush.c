@@ -19,7 +19,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
-/* This is a helper tool for reseting the value of a TPM2.0 PCR */
+/* This is a helper tool for resetting the value of a TPM2.0 PCR */
 
 #ifdef HAVE_CONFIG_H
     #include <config.h>

@@ -555,7 +555,7 @@ for option in $OPTION_FLAGS; do
             continue
         fi
 
-        # allow user to igonore system options
+        # allow user to ignore system options
         ignoresys=no
         if [[[ $noequalsign == _* ]]] ;
         then

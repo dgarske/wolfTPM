@@ -282,7 +282,7 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
         wolfTPM2_UnloadHandle(&dev, &testKey.handle);
     }
     else if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) {
-        printf("CreateLoadedKey: Feature is not suppored on this hardware\n");
+        printf("CreateLoadedKey: Feature is not supported on this hardware\n");
     }
     else {
         goto exit;

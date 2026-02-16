@@ -187,7 +187,7 @@ typedef int64_t  INT64;
     #define XSTRNCMP(s1,s2,n) strncmp((s1),(s2),(n))
 #endif /* !WOLFTPM_CUSTOM_TYPES */
 
-    /* Endianess */
+    /* Endianness */
     #ifndef BIG_ENDIAN_ORDER
         #define LITTLE_ENDIAN_ORDER
     #endif
@@ -811,7 +811,7 @@ typedef int64_t  INT64;
 
 
 /* ---------------------------------------------------------------------------*/
-/* ENDIANESS HELPERS */
+/* ENDIANNESS HELPERS */
 /* ---------------------------------------------------------------------------*/
 
 #ifdef __ICCARM__
