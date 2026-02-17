@@ -7371,7 +7371,8 @@ static int wolfTPM2_SignCertCb(const byte* in, word32 inLen,
     int rc;
     TpmSignCbCtx* tpmCtx = (TpmSignCbCtx*)ctx;
 
-    if (tpmCtx == NULL || tpmCtx->dev == NULL || tpmCtx->key == NULL) {
+    if (tpmCtx == NULL || tpmCtx->dev == NULL || tpmCtx->key == NULL ||
+            in == NULL || out == NULL || outLen == NULL) {
         return BAD_FUNC_ARG;
     }
 
@@ -7815,20 +7816,8 @@ int wolfTPM2_CSR_MakeAndSign_ex(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
     int sigType, int selfSignCert, int devId)
 {
     int rc;
-    int keyType;
 
     if (dev == NULL || key == NULL || csr == NULL || out == NULL) {
-        return BAD_FUNC_ARG;
-    }
-
-    /* Determine key type from TPM key */
-    if (key->pub.publicArea.type == TPM_ALG_ECC) {
-        keyType = ECC_TYPE;
-    }
-    else if (key->pub.publicArea.type == TPM_ALG_RSA) {
-        keyType = RSA_TYPE;
-    }
-    else {
         return BAD_FUNC_ARG;
     }
 
@@ -7843,6 +7832,19 @@ int wolfTPM2_CSR_MakeAndSign_ex(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
 #ifdef WOLFSSL_CERT_SIGN_CB
     /* Use new callback-based signing if devId not specified */
     if (devId == INVALID_DEVID) {
+        int keyType;
+
+        /* Determine key type from TPM key */
+        if (key->pub.publicArea.type == TPM_ALG_ECC) {
+            keyType = ECC_TYPE;
+        }
+        else if (key->pub.publicArea.type == TPM_ALG_RSA) {
+            keyType = RSA_TYPE;
+        }
+        else {
+            return BAD_FUNC_ARG;
+        }
+
         /* Set signature type if not specified */
         if (sigType == 0) {
             if (keyType == RSA_TYPE) {
