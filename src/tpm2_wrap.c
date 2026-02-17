@@ -7332,23 +7332,24 @@ typedef struct CSRKey {
     TpmCryptoDevCtx tpmCtx;
 } CSRKey;
 
+#ifdef WOLFSSL_CERT_SIGN_CB
 /*
  * Internal callback function for wc_SignCert_cb that uses TPM for signing.
- * 
+ *
  * This callback implements the wc_SignCertCb interface to perform certificate
  * and CSR signing using the TPM. It is used internally by CSR_MakeAndSign_Cb
  * when the callback-based signing approach is selected.
- * 
+ *
  * For RSA keys:
  *   - Input is PKCS#1 v1.5 padded digest (already encoded by wolfSSL)
  *   - Uses wolfTPM2_RsaDecrypt with TPM_ALG_NULL (no padding) to perform
  *     the private key operation for signing
- * 
+ *
  * For ECC keys:
  *   - Input is the raw hash to sign
  *   - Uses wolfTPM2_SignHash to sign with TPM
  *   - Converts TPM's R||S format to DER-encoded ECDSA signature
- * 
+ *
  * Parameters:
  *   in       - Data to sign (encoded for RSA, raw hash for ECC)
  *   inLen    - Length of input data
@@ -7357,7 +7358,7 @@ typedef struct CSRKey {
  *   sigAlgo  - Signature algorithm (not used, determined by keyType)
  *   keyType  - Key type (RSA_TYPE or ECC_TYPE)
  *   ctx      - TpmSignCbCtx containing TPM device and key
- * 
+ *
  * Returns:
  *   0 on success
  *   BAD_FUNC_ARG on invalid parameters
@@ -7424,6 +7425,7 @@ static int wolfTPM2_SignCertCb(const byte* in, word32 inLen,
 
     return rc;
 }
+#endif /* WOLFSSL_CERT_SIGN_CB */
 
 
 static int CSR_MakeAndSign(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr, CSRKey* key,
@@ -7476,20 +7478,21 @@ static int CSR_MakeAndSign(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr, CSRKey* key,
     return rc;
 }
 
+#ifdef WOLFSSL_CERT_SIGN_CB
 /*
  * Internal function for CSR/Certificate generation and signing using the
  * callback-based approach.
- * 
+ *
  * This function generates and signs a Certificate Signing Request (CSR) or
  * self-signed certificate using the new wc_SignCert_cb() API. Unlike the
  * legacy CSR_MakeAndSign() function which requires crypto callback setup,
  * this function calls TPM signing directly via wolfTPM2_SignCertCb().
- * 
+ *
  * Advantages of this approach:
  *   - FIPS compliant (no wolfCrypt crypto offloading)
  *   - Simpler code path (no crypto callback infrastructure)
  *   - Direct TPM signing without intermediate key structures
- * 
+ *
  * Parameters:
  *   dev          - Initialized TPM device
  *   csr          - CSR structure with subject, extensions, etc.
@@ -7499,7 +7502,7 @@ static int CSR_MakeAndSign(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr, CSRKey* key,
  *   out          - Output buffer
  *   outSz        - Size of output buffer
  *   selfSignCert - 1 to create self-signed cert, 0 for CSR
- * 
+ *
  * Returns:
  *   Positive value: size of generated CSR/certificate
  *   BAD_FUNC_ARG: invalid parameters
@@ -7615,6 +7618,7 @@ static int CSR_MakeAndSign_Cb(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
 
     return rc;
 }
+#endif /* WOLFSSL_CERT_SIGN_CB */
 
 
 static int CSR_KeySetup(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr, WOLFTPM2_KEY* key,
@@ -7836,6 +7840,7 @@ int wolfTPM2_CSR_MakeAndSign_ex(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
         csr->req.version = 0;
     }
 
+#ifdef WOLFSSL_CERT_SIGN_CB
     /* Use new callback-based signing if devId not specified */
     if (devId == INVALID_DEVID) {
         /* Set signature type if not specified */
@@ -7853,8 +7858,10 @@ int wolfTPM2_CSR_MakeAndSign_ex(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
         rc = CSR_MakeAndSign_Cb(dev, csr, key, keyType, outFormat, out, outSz,
             selfSignCert);
     }
-    else {
-        /* Fall back to crypto callback approach for backward compatibility */
+    else
+#endif /* WOLFSSL_CERT_SIGN_CB */
+    {
+        /* Use crypto callback approach */
         CSRKey csrKey;
         rc = CSR_KeySetup(dev, csr, key, &csrKey, sigType, devId);
         if (rc == 0) {
