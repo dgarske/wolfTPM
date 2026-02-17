@@ -1708,6 +1708,12 @@ typedef struct TPM2_AUTH_SESSION {
 /* EK Certificate Chains (0x100 - 0x1FF) - Not common */
 #define TPM2_NV_EK_CHAIN               (TPM_20_TCG_NV_SPACE + 0x100)
 
+/* EK Policy Indices for PolicyAuthorizeNV (0x7F01 - 0x7F04) */
+#define TPM2_NV_EK_POLICY_SHA256       (TPM_20_TCG_NV_SPACE + 0x7F01)
+#define TPM2_NV_EK_POLICY_SHA384       (TPM_20_TCG_NV_SPACE + 0x7F02)
+#define TPM2_NV_EK_POLICY_SHA512       (TPM_20_TCG_NV_SPACE + 0x7F03)
+#define TPM2_NV_EK_POLICY_SM3_256      (TPM_20_TCG_NV_SPACE + 0x7F04)
+
 /* Predetermined TPM 2.0 Endorsement policy auth templates */
 /* SHA256 (Low Range) */
 static const BYTE TPM_20_EK_AUTH_POLICY[] = {

@@ -57,6 +57,36 @@ static void usage(void)
     printf("./examples/endorsement/get_ek_certs\n");
 }
 
+#ifdef DEBUG_WOLFTPM
+/* Decode and display NV attributes - only in debug mode */
+static void show_nv_attributes(TPMA_NV attr)
+{
+    printf("  Attributes:");
+    if (attr & TPMA_NV_PPWRITE) printf(" PPWRITE");
+    if (attr & TPMA_NV_OWNERWRITE) printf(" OWNERWRITE");
+    if (attr & TPMA_NV_AUTHWRITE) printf(" AUTHWRITE");
+    if (attr & TPMA_NV_POLICYWRITE) printf(" POLICYWRITE");
+    if (attr & TPMA_NV_POLICY_DELETE) printf(" POLICY_DELETE");
+    if (attr & TPMA_NV_WRITELOCKED) printf(" WRITELOCKED");
+    if (attr & TPMA_NV_WRITEALL) printf(" WRITEALL");
+    if (attr & TPMA_NV_WRITEDEFINE) printf(" WRITEDEFINE");
+    if (attr & TPMA_NV_WRITE_STCLEAR) printf(" WRITE_STCLEAR");
+    if (attr & TPMA_NV_GLOBALLOCK) printf(" GLOBALLOCK");
+    if (attr & TPMA_NV_PPREAD) printf(" PPREAD");
+    if (attr & TPMA_NV_OWNERREAD) printf(" OWNERREAD");
+    if (attr & TPMA_NV_AUTHREAD) printf(" AUTHREAD");
+    if (attr & TPMA_NV_POLICYREAD) printf(" POLICYREAD");
+    if (attr & TPMA_NV_NO_DA) printf(" NO_DA");
+    if (attr & TPMA_NV_ORDERLY) printf(" ORDERLY");
+    if (attr & TPMA_NV_CLEAR_STCLEAR) printf(" CLEAR_STCLEAR");
+    if (attr & TPMA_NV_READLOCKED) printf(" READLOCKED");
+    if (attr & TPMA_NV_WRITTEN) printf(" WRITTEN");
+    if (attr & TPMA_NV_PLATFORMCREATE) printf(" PLATFORMCREATE");
+    if (attr & TPMA_NV_READ_STCLEAR) printf(" READ_STCLEAR");
+    printf("\n");
+}
+#endif
+
 static void dump_hex_bytes(const byte* buf, word32 sz)
 {
     word32 i;
@@ -237,7 +267,112 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
         /* Get Endorsement Public Key template using NV index */
         rc = wolfTPM2_GetKeyTemplate_EKIndex(nvIndex, &publicTemplate);
         if (rc != 0) {
-            printf("EK Index 0x%08x not valid\n", nvIndex);
+            const char* indexType = "Unknown";
+            word32 offset = nvIndex - TPM_20_TCG_NV_SPACE;
+            
+            /* Identify the type of NV index based on offset */
+            if (nvIndex < TPM_20_TCG_NV_SPACE) {
+                indexType = "Non-TCG (below TCG NV space)";
+            }
+            else if (offset >= 0x2 && offset <= 0xC) {
+                indexType = "EK Low Range";
+                if (offset == 0x2) indexType = "EK Low Range (RSA 2048 Cert)";
+                else if (offset == 0x3) indexType = "EK Low Range (RSA 2048 Nonce)";
+                else if (offset == 0x4) indexType = "EK Low Range (RSA 2048 Template)";
+                else if (offset == 0xA) indexType = "EK Low Range (ECC P256 Cert)";
+                else if (offset == 0xB) indexType = "EK Low Range (ECC P256 Nonce)";
+                else if (offset == 0xC) indexType = "EK Low Range (ECC P256 Template)";
+            }
+            else if (offset >= 0x12 && offset < 0x100) {
+                indexType = "EK High Range";
+                if (offset == 0x12) indexType = "EK High Range (RSA 2048 Cert)";
+                else if (offset == 0x14) indexType = "EK High Range (ECC P256 Cert)";
+                else if (offset == 0x16) indexType = "EK High Range (ECC P384 Cert)";
+                else if (offset == 0x18) indexType = "EK High Range (ECC P521 Cert)";
+                else if (offset == 0x1A) indexType = "EK High Range (ECC SM2 Cert)";
+                else if (offset == 0x1C) indexType = "EK High Range (RSA 3072 Cert)";
+                else if (offset == 0x1E) indexType = "EK High Range (RSA 4096 Cert)";
+                else if ((offset & 1) == 0) indexType = "EK High Range (Cert, even index)";
+                else indexType = "EK High Range (Template, odd index)";
+            }
+            else if (offset >= 0x100 && offset < 0x200) {
+                indexType = "EK Certificate Chain";
+            }
+            else if (offset >= 0x7F01 && offset <= 0x7F04) {
+                indexType = "EK Policy Index";
+                if (offset == 0x7F01) indexType = "EK Policy Index (SHA256)";
+                else if (offset == 0x7F02) indexType = "EK Policy Index (SHA384)";
+                else if (offset == 0x7F03) indexType = "EK Policy Index (SHA512)";
+                else if (offset == 0x7F04) indexType = "EK Policy Index (SM3_256)";
+            }
+            else if (nvIndex > TPM_20_TCG_NV_SPACE + 0x7FFF) {
+                indexType = "Vendor-specific (beyond TCG range)";
+            }
+            
+            printf("NV Index 0x%08x: %s (not a recognized EK certificate index)\n", 
+                nvIndex, indexType);
+
+            /* Try to read the NV public info to show what it contains */
+            rc = wolfTPM2_NVReadPublic(&dev, nvIndex, &nvPublic);
+            if (rc == 0) {
+                const char* hashName = TPM2_GetAlgName(nvPublic.nameAlg);
+                int isPolicyDigest = 0;
+                int showData = 0;
+                
+            #ifdef DEBUG_WOLFTPM
+                printf("  NV Size: %u bytes, Attributes: 0x%08x, Name Alg: %s\n",
+                    nvPublic.dataSize, (unsigned int)nvPublic.attributes, hashName);
+                show_nv_attributes(nvPublic.attributes);
+                showData = 1; /* Always show data in debug mode */
+            #else
+                printf("  NV Size: %u bytes, Name Alg: %s\n",
+                    nvPublic.dataSize, hashName);
+            #endif
+
+                /* Check if this looks like a policy digest based on size and hash */
+                if ((nvPublic.dataSize == 32 && nvPublic.nameAlg == TPM_ALG_SHA256) ||
+                    (nvPublic.dataSize == 48 && nvPublic.nameAlg == TPM_ALG_SHA384) ||
+                    (nvPublic.dataSize == 64 && nvPublic.nameAlg == TPM_ALG_SHA512) ||
+                    (nvPublic.dataSize == 32 && nvPublic.nameAlg == TPM_ALG_SM3_256)) {
+                    printf("  Type: Policy digest (%s hash)\n", hashName);
+                    isPolicyDigest = 1;
+                    showData = 1; /* Always show policy digests */
+                }
+                else if (nvPublic.dataSize > 100) {
+                    printf("  Type: Certificate or template\n");
+                }
+                else if (nvPublic.dataSize > 32) {
+                    printf("  Type: Data (%u bytes)\n", nvPublic.dataSize);
+                }
+                else {
+                    printf("  Type: Small data (%u bytes)\n", nvPublic.dataSize);
+                #ifdef DEBUG_WOLFTPM
+                    showData = 1;
+                #endif
+                }
+
+                /* Read and display data if appropriate */
+                if (showData && nvPublic.dataSize > 0) {
+                    certSz = nvPublic.dataSize;
+                    if (certSz > sizeof(certBuf)) {
+                        certSz = sizeof(certBuf);
+                    }
+                    
+                    rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, certBuf, &certSz, 0);
+                    if (rc == 0) {
+                        if (nvPublic.dataSize <= 32 || isPolicyDigest) {
+                            printf("  Data (%u bytes):\n", certSz);
+                            dump_hex_bytes(certBuf, certSz);
+                        }
+                        else {
+                            printf("  First 32 bytes:\n");
+                            dump_hex_bytes(certBuf, (certSz > 32) ? 32 : certSz);
+                        }
+                    }
+                }
+            }
+
+            rc = 0; /* Reset error code to continue processing */
             continue;
         }
 

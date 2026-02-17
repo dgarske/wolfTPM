@@ -6446,9 +6446,9 @@ int wolfTPM2_GetKeyTemplate_EKIndex(word32 nvIndex,
     uint32_t keyBits = 0;
     int highRange = 0;
 
-    /* validate index is in NV EK range */
+    /* validate index is in TCG NV space range (0x01C00000 - 0x01C07FFF) */
     if (nvIndex < TPM_20_TCG_NV_SPACE ||
-        nvIndex > TPM_20_TCG_NV_SPACE + 0x1FF) {
+        nvIndex > TPM_20_TCG_NV_SPACE + 0x7FFF) {
         return BAD_FUNC_ARG;
     }
 
