@@ -6445,10 +6445,20 @@ int wolfTPM2_GetKeyTemplate_EKIndex(word32 nvIndex,
     TPM_ECC_CURVE curveID = TPM_ECC_NONE;
     uint32_t keyBits = 0;
     int highRange = 0;
+    word32 offset;
 
-    /* validate index is in TCG NV space range (0x01C00000 - 0x01C07FFF) */
+    /* Validate index is in TCG NV space */
     if (nvIndex < TPM_20_TCG_NV_SPACE ||
         nvIndex > TPM_20_TCG_NV_SPACE + 0x7FFF) {
+        return BAD_FUNC_ARG;
+    }
+
+    offset = nvIndex - TPM_20_TCG_NV_SPACE;
+
+    /* Reject indices in dead zones that cannot produce valid templates:
+     * - Between High Range (0x1FF) and Policy Indices (0x7F01)
+     * - After Policy Indices (0x7F04) */
+    if ((offset > 0x1FF && offset < 0x7F01) || offset > 0x7F04) {
         return BAD_FUNC_ARG;
     }
 

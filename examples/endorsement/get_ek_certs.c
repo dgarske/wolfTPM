@@ -259,7 +259,7 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
     for (nvIdx=0; nvIdx<(int)handles.count; nvIdx++) {
         nvIndex = handles.handle[nvIdx];
 
-        XMEMSET(&nv, 0, sizeof(nv)); /* Must reset the NV for each read */
+        XMEMSET(&nv, 0, sizeof(nv)); /* Reset NV handle for each index */
         XMEMSET(certBuf, 0, sizeof(certBuf));
 
         printf("TCG Handle 0x%x\n", nvIndex);
@@ -268,45 +268,54 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
         rc = wolfTPM2_GetKeyTemplate_EKIndex(nvIndex, &publicTemplate);
         if (rc != 0) {
             const char* indexType = "Unknown";
-            word32 offset = nvIndex - TPM_20_TCG_NV_SPACE;
+            word32 offset;
             
             /* Identify the type of NV index based on offset */
             if (nvIndex < TPM_20_TCG_NV_SPACE) {
                 indexType = "Non-TCG (below TCG NV space)";
             }
-            else if (offset >= 0x2 && offset <= 0xC) {
-                indexType = "EK Low Range";
-                if (offset == 0x2) indexType = "EK Low Range (RSA 2048 Cert)";
-                else if (offset == 0x3) indexType = "EK Low Range (RSA 2048 Nonce)";
-                else if (offset == 0x4) indexType = "EK Low Range (RSA 2048 Template)";
-                else if (offset == 0xA) indexType = "EK Low Range (ECC P256 Cert)";
-                else if (offset == 0xB) indexType = "EK Low Range (ECC P256 Nonce)";
-                else if (offset == 0xC) indexType = "EK Low Range (ECC P256 Template)";
-            }
-            else if (offset >= 0x12 && offset < 0x100) {
-                indexType = "EK High Range";
-                if (offset == 0x12) indexType = "EK High Range (RSA 2048 Cert)";
-                else if (offset == 0x14) indexType = "EK High Range (ECC P256 Cert)";
-                else if (offset == 0x16) indexType = "EK High Range (ECC P384 Cert)";
-                else if (offset == 0x18) indexType = "EK High Range (ECC P521 Cert)";
-                else if (offset == 0x1A) indexType = "EK High Range (ECC SM2 Cert)";
-                else if (offset == 0x1C) indexType = "EK High Range (RSA 3072 Cert)";
-                else if (offset == 0x1E) indexType = "EK High Range (RSA 4096 Cert)";
-                else if ((offset & 1) == 0) indexType = "EK High Range (Cert, even index)";
-                else indexType = "EK High Range (Template, odd index)";
-            }
-            else if (offset >= 0x100 && offset < 0x200) {
-                indexType = "EK Certificate Chain";
-            }
-            else if (offset >= 0x7F01 && offset <= 0x7F04) {
-                indexType = "EK Policy Index";
-                if (offset == 0x7F01) indexType = "EK Policy Index (SHA256)";
-                else if (offset == 0x7F02) indexType = "EK Policy Index (SHA384)";
-                else if (offset == 0x7F03) indexType = "EK Policy Index (SHA512)";
-                else if (offset == 0x7F04) indexType = "EK Policy Index (SM3_256)";
-            }
-            else if (nvIndex > TPM_20_TCG_NV_SPACE + 0x7FFF) {
-                indexType = "Vendor-specific (beyond TCG range)";
+            else {
+                offset = nvIndex - TPM_20_TCG_NV_SPACE;
+                
+                if (offset >= 0x2 && offset <= 0xC) {
+                    indexType = "EK Low Range";
+                    if (offset == 0x2) indexType = "EK Low Range (RSA 2048 Cert)";
+                    else if (offset == 0x3) indexType = "EK Low Range (RSA 2048 Nonce)";
+                    else if (offset == 0x4) indexType = "EK Low Range (RSA 2048 Template)";
+                    else if (offset == 0xA) indexType = "EK Low Range (ECC P256 Cert)";
+                    else if (offset == 0xB) indexType = "EK Low Range (ECC P256 Nonce)";
+                    else if (offset == 0xC) indexType = "EK Low Range (ECC P256 Template)";
+                }
+                else if (offset >= 0x12 && offset < 0x100) {
+                    indexType = "EK High Range";
+                    if (offset == 0x12) indexType = "EK High Range (RSA 2048 Cert)";
+                    else if (offset == 0x14) indexType = "EK High Range (ECC P256 Cert)";
+                    else if (offset == 0x16) indexType = "EK High Range (ECC P384 Cert)";
+                    else if (offset == 0x18) indexType = "EK High Range (ECC P521 Cert)";
+                    else if (offset == 0x1A) indexType = "EK High Range (ECC SM2 Cert)";
+                    else if (offset == 0x1C) indexType = "EK High Range (RSA 3072 Cert)";
+                    else if (offset == 0x1E) indexType = "EK High Range (RSA 4096 Cert)";
+                    else if ((offset & 1) == 0) indexType = "EK High Range (Cert, even index)";
+                    else indexType = "EK High Range (Template, odd index)";
+                }
+                else if (offset >= 0x100 && offset < 0x200) {
+                    indexType = "EK Certificate Chain";
+                }
+                else if (offset == (TPM2_NV_EK_POLICY_SHA256 - TPM_20_TCG_NV_SPACE)) {
+                    indexType = "EK Policy Index (SHA256)";
+                }
+                else if (offset == (TPM2_NV_EK_POLICY_SHA384 - TPM_20_TCG_NV_SPACE)) {
+                    indexType = "EK Policy Index (SHA384)";
+                }
+                else if (offset == (TPM2_NV_EK_POLICY_SHA512 - TPM_20_TCG_NV_SPACE)) {
+                    indexType = "EK Policy Index (SHA512)";
+                }
+                else if (offset == (TPM2_NV_EK_POLICY_SM3_256 - TPM_20_TCG_NV_SPACE)) {
+                    indexType = "EK Policy Index (SM3_256)";
+                }
+                else if (nvIndex > TPM_20_TCG_NV_SPACE + 0x7FFF) {
+                    indexType = "Vendor-specific (beyond TCG range)";
+                }
             }
             
             printf("NV Index 0x%08x: %s (not a recognized EK certificate index)\n", 
