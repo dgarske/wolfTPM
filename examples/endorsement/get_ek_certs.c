@@ -369,13 +369,17 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
                     
                     rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, certBuf, &certSz, 0);
                     if (rc == 0) {
-                        if (nvPublic.dataSize <= 32 || isPolicyDigest) {
-                            printf("  Data (%u bytes):\n", certSz);
-                            dump_hex_bytes(certBuf, certSz);
-                        }
-                        else {
+                        printf("  Data (%u bytes):\n", certSz);
+                    #ifdef DEBUG_WOLFTPM
+                        /* In debug mode, show partial data for large buffers */
+                        if (certSz > 32 && !isPolicyDigest) {
                             printf("  First 32 bytes:\n");
-                            dump_hex_bytes(certBuf, (certSz > 32) ? 32 : certSz);
+                            dump_hex_bytes(certBuf, 32);
+                        }
+                        else
+                    #endif
+                        {
+                            dump_hex_bytes(certBuf, certSz);
                         }
                     }
                 }
