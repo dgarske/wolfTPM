@@ -325,8 +325,10 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
             rc = wolfTPM2_NVReadPublic(&dev, nvIndex, &nvPublic);
             if (rc == 0) {
                 const char* hashName = TPM2_GetAlgName(nvPublic.nameAlg);
-                int isPolicyDigest = 0;
                 int showData = 0;
+            #ifdef DEBUG_WOLFTPM
+                int isPolicyDigest = 0;
+            #endif
                 
             #ifdef DEBUG_WOLFTPM
                 printf("  NV Size: %u bytes, Attributes: 0x%08x, Name Alg: %s\n",
@@ -344,7 +346,9 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
                     (nvPublic.dataSize == 64 && nvPublic.nameAlg == TPM_ALG_SHA512) ||
                     (nvPublic.dataSize == 32 && nvPublic.nameAlg == TPM_ALG_SM3_256)) {
                     printf("  Type: Policy digest (%s hash)\n", hashName);
+                #ifdef DEBUG_WOLFTPM
                     isPolicyDigest = 1;
+                #endif
                     showData = 1; /* Always show policy digests */
                 }
                 else if (nvPublic.dataSize > 100) {
@@ -369,13 +373,17 @@ int TPM2_EndorsementCert_Example(void* userCtx, int argc, char *argv[])
                     
                     rc = wolfTPM2_NVReadAuth(&dev, &nv, nvIndex, certBuf, &certSz, 0);
                     if (rc == 0) {
-                        if (nvPublic.dataSize <= 32 || isPolicyDigest) {
-                            printf("  Data (%u bytes):\n", certSz);
-                            dump_hex_bytes(certBuf, certSz);
-                        }
-                        else {
+                        printf("  Data (%u bytes):\n", certSz);
+                    #ifdef DEBUG_WOLFTPM
+                        /* In debug mode, show partial data for large buffers */
+                        if (certSz > 32 && !isPolicyDigest) {
                             printf("  First 32 bytes:\n");
-                            dump_hex_bytes(certBuf, (certSz > 32) ? 32 : certSz);
+                            dump_hex_bytes(certBuf, 32);
+                        }
+                        else
+                    #endif
+                        {
+                            dump_hex_bytes(certBuf, certSz);
                         }
                     }
                 }
