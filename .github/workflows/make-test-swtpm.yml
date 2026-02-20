@@ -63,6 +63,12 @@ jobs:
           # Infineon SLB9673
           - name: slb9673
             wolftpm_config: --enable-infineon=slb9673 --enable-i2c
+          # Cert sign callback (wc_SignCert_cb)
+          - name: certsigncb
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-certsigncb
+            wolftpm_config: --enable-swtpm --enable-certgen
+            test_command: "make check && WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh"
+
           # STMicro ST33KTPM2
           - name: st33ktpm2
             wolftpm_config: --enable-st33
