@@ -153,7 +153,7 @@ int TPM2_NVRAM_Extend_Example(void* userCtx, int argc, char *argv[])
 
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != TPM_RC_SUCCESS) {
-        printf("wolfTPM2_Init failed\n");
+        printf("wolfTPM2_Init failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
         goto exit;
     }
 

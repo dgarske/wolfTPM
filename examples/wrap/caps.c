@@ -106,7 +106,10 @@ int TPM2_Wrapper_CapsArgs(void* userCtx, int argc, char *argv[])
 
     /* Init the TPM2 device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
-    if (rc != 0) return rc;
+    if (rc != 0) {
+        printf("wolfTPM2_Init failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        return rc;
+    }
 
     rc = wolfTPM2_GetCapabilities(&dev, &caps);
     if (rc != 0) goto exit;

@@ -63,12 +63,14 @@
     #endif
     #include <fcntl.h>
     #include <unistd.h>
+    #include <errno.h>
 
     #ifdef WOLFTPM_I2C
         /* I2C - (Only tested with SLB9673 and ST33 I2C) */
         #define TPM2_I2C_ADDR 0x2e
         #define TPM2_I2C_DEV  "/dev/i2c-1"
         #define TPM2_I2C_HZ   400000 /* 400kHz */
+        static int i2cOpenFailed = 0;
     #else
         /* SPI */
         #ifndef TPM2_SPI_DEV_CS
@@ -97,8 +99,10 @@
             static char TPM2_SPI_DEV[] = TPM2_SPI_DEV_PATH "0";
             #define MAX_SPI_DEV_CS '4'
             static int foundSpiDev = 0;
+            static int spiDevNotFound = 0;
         #else
             #define TPM2_SPI_DEV TPM2_SPI_DEV_PATH TPM2_SPI_DEV_CS
+            static int spiOpenFailed = 0;
         #endif
     #endif
 #endif
@@ -189,6 +193,20 @@
                 ret = i2c_write(i2cDev, addr, buf, size);
 
             close(i2cDev);
+        }
+        else if (!i2cOpenFailed) {
+            i2cOpenFailed = 1;
+            if (errno == EACCES) {
+                printf("Permission denied on %s\n"
+                    "Use sudo or add appropriate group to user.\n",
+                    TPM2_I2C_DEV);
+            }
+        #ifdef DEBUG_WOLFTPM
+            else {
+                printf("Failed to open I2C device %s (errno %d)\n",
+                    TPM2_I2C_DEV, errno);
+            }
+        #endif
         }
 
         (void)ctx;
@@ -308,6 +326,22 @@
         else {
             /* Failed to open device */
             ret = TPM_RC_FAILURE;
+        #ifndef WOLFTPM_AUTODETECT
+            if (!spiOpenFailed) {
+                spiOpenFailed = 1;
+                if (errno == EACCES) {
+                    printf("Permission denied on %s\n"
+                        "Use sudo or check device permissions.\n",
+                        TPM2_SPI_DEV);
+                }
+            #ifdef DEBUG_WOLFTPM
+                else {
+                    printf("Failed to open SPI device %s (errno %d)\n",
+                        TPM2_SPI_DEV, errno);
+                }
+            #endif
+            }
+        #endif
         }
 
     #ifdef WOLFTPM_AUTODETECT
@@ -326,6 +360,13 @@
                     TPM2_SPI_DEV[devLen-1]++;
                     goto tryagain;
                 }
+            #ifdef DEBUG_WOLFTPM
+                if (!spiDevNotFound) {
+                    spiDevNotFound = 1;
+                    printf("TPM not found on SPI bus %s[0-%c]\n",
+                        TPM2_SPI_DEV_PATH, MAX_SPI_DEV_CS);
+                }
+            #endif
             }
         }
     #endif
