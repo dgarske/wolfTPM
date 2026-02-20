@@ -99,7 +99,9 @@
             static char TPM2_SPI_DEV[] = TPM2_SPI_DEV_PATH "0";
             #define MAX_SPI_DEV_CS '4'
             static int foundSpiDev = 0;
+        #ifdef DEBUG_WOLFTPM
             static int spiDevNotFound = 0;
+        #endif
         #else
             #define TPM2_SPI_DEV TPM2_SPI_DEV_PATH TPM2_SPI_DEV_CS
             static int spiOpenFailed = 0;
