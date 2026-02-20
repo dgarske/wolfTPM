@@ -263,7 +263,7 @@ int TPM2_Wrapper_BenchArgs(void* userCtx, int argc, char *argv[])
     /* Init the TPM2 device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
     if (rc != 0) {
-        printf("wolfTPM2_Init failed 0x%x: %s\n", rc, TPM2_GetRCString(rc));
+        printf("wolfTPM2_Init failed\n");
         return rc;
     }
 
