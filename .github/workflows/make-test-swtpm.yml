@@ -67,7 +67,7 @@ jobs:
           - name: certsigncb
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-certsigncb
             wolftpm_config: --enable-swtpm --enable-certgen
-            test_command: "make check && WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh"
+            test_command: "make check && WOLFSSL_PATH=./wolfssl ./examples/run_examples.sh && ./examples/csr/csr -signcb && ./examples/csr/csr -signcb -cert"
 
           # STMicro ST33KTPM2
           - name: st33ktpm2

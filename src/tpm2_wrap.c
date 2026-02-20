@@ -7391,13 +7391,19 @@ static int wolfTPM2_SignCertCb(const byte* in, word32 inLen,
             byte *r, *s;
             word32 rLen, sLen;
 
-            /* Split R and S from concatenated signature */
-            rLen = sLen = rsLen / 2;
-            r = &sigRS[0];
-            s = &sigRS[rLen];
+            /* Validate concatenated R||S length before splitting */
+            if (rsLen <= 0 || (rsLen & 1) != 0) {
+                rc = BAD_FUNC_ARG;
+            }
+            else {
+                /* Split R and S from concatenated signature */
+                rLen = sLen = (word32)(rsLen / 2);
+                r = &sigRS[0];
+                s = &sigRS[rLen];
 
-            /* Encode as DER ECDSA signature */
-            rc = wc_ecc_rs_raw_to_sig(r, rLen, s, sLen, out, outLen);
+                /* Encode as DER ECDSA signature */
+                rc = wc_ecc_rs_raw_to_sig(r, rLen, s, sLen, out, outLen);
+            }
         }
 #else
         rc = NOT_COMPILED_IN;
@@ -7515,6 +7521,7 @@ static int CSR_MakeAndSign_Cb(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
     int selfSignCert)
 {
     int rc = 0;
+    int keyInited = 0;
     TpmSignCbCtx signCtx;
     union {
     #ifndef NO_RSA
@@ -7529,6 +7536,7 @@ static int CSR_MakeAndSign_Cb(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
         return BAD_FUNC_ARG;
     }
 
+    XMEMSET(&signCtx, 0, sizeof(signCtx));
     XMEMSET(&wolfKey, 0, sizeof(wolfKey));
 
     /* Extract public key from TPM key into wolfCrypt key structure */
@@ -7536,6 +7544,7 @@ static int CSR_MakeAndSign_Cb(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
     #ifdef HAVE_ECC
         rc = wc_ecc_init(&wolfKey.ecc);
         if (rc == 0) {
+            keyInited = 1;
             /* load public portion of key into wolf ECC Key */
             rc = wolfTPM2_EccKey_TpmToWolf(dev, key, &wolfKey.ecc);
         }
@@ -7547,6 +7556,7 @@ static int CSR_MakeAndSign_Cb(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
     #ifndef NO_RSA
         rc = wc_InitRsaKey(&wolfKey.rsa, NULL);
         if (rc == 0) {
+            keyInited = 1;
             /* load public portion of key into wolf RSA Key */
             rc = wolfTPM2_RsaKey_TpmToWolf(dev, key, &wolfKey.rsa);
         }
@@ -7563,6 +7573,13 @@ static int CSR_MakeAndSign_Cb(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
         signCtx.dev = dev;
         signCtx.key = key;
     }
+
+#ifdef WOLFSSL_CERT_EXT
+    /* add SKID from the Public Key */
+    if (rc == 0) {
+        rc = wc_SetSubjectKeyIdFromPublicKey_ex(&csr->req, keyType, &wolfKey);
+    }
+#endif
 
     /* Create certificate body with public key */
     if (rc == 0 && selfSignCert) {
@@ -7606,15 +7623,17 @@ static int CSR_MakeAndSign_Cb(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
     }
 
     /* Cleanup wolfCrypt key structure */
-    if (keyType == ECC_TYPE) {
-    #ifdef HAVE_ECC
-        wc_ecc_free(&wolfKey.ecc);
-    #endif
-    }
-    else if (keyType == RSA_TYPE) {
-    #ifndef NO_RSA
-        wc_FreeRsaKey(&wolfKey.rsa);
-    #endif
+    if (keyInited) {
+        if (keyType == ECC_TYPE) {
+        #ifdef HAVE_ECC
+            wc_ecc_free(&wolfKey.ecc);
+        #endif
+        }
+        else if (keyType == RSA_TYPE) {
+        #ifndef NO_RSA
+            wc_FreeRsaKey(&wolfKey.rsa);
+        #endif
+        }
     }
 
     return rc;
