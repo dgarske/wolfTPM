@@ -67,6 +67,30 @@ static const char* gClientCertEccFile = ECC_CERT_PEM;
 /* --- BEGIN TPM2 CSR Example -- */
 /******************************************************************************/
 
+/* Certificate/CSR Signing with TPM:
+ * 
+ * wolfTPM supports two approaches for TPM-based certificate signing:
+ * 
+ * 1. NEW CALLBACK-BASED APPROACH (Recommended for FIPS):
+ *    When devId is INVALID_DEVID, wolfTPM2_CSR_MakeAndSign_ex() uses the new
+ *    wc_SignCert_cb() API which calls TPM signing functions directly without
+ *    requiring wolfCrypt crypto callbacks. This approach:
+ *    - Uses TPM crypto directly (no wolfCrypt offloading)
+ *    - Is FIPS-compliant (doesn't rely on wolfCrypt crypto callbacks)
+ *    - Simplifies the code path
+ *
+ * 2. CRYPTO CALLBACK APPROACH (Legacy/Backward Compatible):
+ *    When devId is set via wolfTPM2_SetCryptoDevCb(), the legacy crypto
+ *    callback infrastructure is used. This approach:
+ *    - Uses wc_SignCert_ex() which offloads crypto operations to TPM
+ *    - Maintains backward compatibility
+ *    - Requires crypto callback setup
+ * 
+ * This example demonstrates both approaches. By default it uses the crypto
+ * callback approach. Use the -signcb option to use the new callback-based
+ * approach, which passes INVALID_DEVID to wolfTPM2_CSR_MakeAndSign_ex().
+ */
+
 static int TPM2_CSR_Generate(WOLFTPM2_DEV* dev, int keyType, WOLFTPM2_KEY* key,
     const char* outputPemFile, int makeSelfSignedCert, int devId, int sigType)
 {
@@ -149,9 +173,11 @@ static int TPM2_CSR_Generate(WOLFTPM2_DEV* dev, int keyType, WOLFTPM2_KEY* key,
 static void usage(void)
 {
     printf("Expected usage:\n");
-    printf("./examples/csr/csr [-cert]\n");
+    printf("./examples/csr/csr [-cert] [-signcb]\n");
     printf("\t-cert: Make self signed certificate instead of "
                     "default CSR (Certificate Signing Request)\n");
+    printf("\t-signcb: Use wc_SignCert_cb callback-based signing "
+                    "(FIPS compliant, requires WOLFSSL_CERT_SIGN_CB)\n");
 }
 
 int TPM2_CSR_Example(void* userCtx)
@@ -168,6 +194,7 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
     int tpmDevId;
     TPMT_PUBLIC publicTemplate;
     int makeSelfSignedCert = 0;
+    int useSignCb = 0;
 
     printf("TPM2 CSR Example\n");
 
@@ -182,6 +209,9 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
     while (argc > 1) {
         if (XSTRCMP(argv[argc-1], "-cert") == 0) {
             makeSelfSignedCert = 1;
+        }
+        else if (XSTRCMP(argv[argc-1], "-signcb") == 0) {
+            useSignCb = 1;
         }
         else {
             printf("Warning: Unrecognized option: %s\n", argv[argc-1]);
@@ -221,7 +251,8 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
         if (rc == 0) {
             rc = TPM2_CSR_Generate(&dev, RSA_TYPE, &key,
                 makeSelfSignedCert ? gClientCertRsaFile : gClientCsrRsaFile,
-                makeSelfSignedCert, tpmDevId, CTC_SHA256wRSA);
+                makeSelfSignedCert,
+                useSignCb ? INVALID_DEVID : tpmDevId, CTC_SHA256wRSA);
         }
         wolfTPM2_UnloadHandle(&dev, &key.handle);
         wolfTPM2_UnloadHandle(&dev, &storageKey.handle);
@@ -254,7 +285,8 @@ int TPM2_CSR_ExampleArgs(void* userCtx, int argc, char *argv[])
         if (rc == 0) {
             rc = TPM2_CSR_Generate(&dev, ECC_TYPE, &key,
                 makeSelfSignedCert ? gClientCertEccFile : gClientCsrEccFile,
-                makeSelfSignedCert, tpmDevId, sigType);
+                makeSelfSignedCert,
+                useSignCb ? INVALID_DEVID : tpmDevId, sigType);
         }
         wolfTPM2_UnloadHandle(&dev, &key.handle);
         wolfTPM2_UnloadHandle(&dev, &storageKey.handle);
