@@ -31,6 +31,9 @@
 /* For some struct to buffer conversions */
 #include <wolftpm/tpm2_packet.h>
 #include <hal/tpm_io.h> /* for default IO callback */
+#ifdef WOLFTPM_LINUX_DEV_AUTODETECT
+    #include <wolftpm/tpm2_linux.h>
+#endif
 
 /* Local Functions */
 static int wolfTPM2_GetCapabilities_NoDev(WOLFTPM2_CAPS* cap);
@@ -63,7 +66,53 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     if (ctx == NULL)
         return BAD_FUNC_ARG;
 
-#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
+#if defined(WOLFTPM_LINUX_DEV_AUTODETECT)
+    /* Phase 1: Minimal init (sets up IO callback, no TIS chip startup) */
+    rc = TPM2_Init_ex(ctx, ioCb, userCtx, 0);
+    if (rc != TPM_RC_SUCCESS) {
+        printf("TPM2_Init failed 0x%x: %s\n", rc, wolfTPM2_GetRCString(rc));
+        return rc;
+    }
+
+    /* Phase 2: Try /dev/tpmrm0 then /dev/tpm0 */
+    rc = TPM2_LINUX_TryOpen(ctx);
+    if (rc == TPM_RC_SUCCESS) {
+        /* Using kernel driver - startup/locality handled by kernel */
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2: Using Linux kernel driver\n");
+    #endif
+        return TPM_RC_SUCCESS;
+    }
+    else if (rc == TPM_RC_FAILURE) {
+        /* Permission denied or hard error - don't try SPI */
+        return rc;
+    }
+    /* rc == TPM_RC_INITIALIZE means "not found", fall through to SPI */
+
+    /* Phase 3: SPI fallback - requires IO callback */
+    if (ioCb == NULL) {
+    #ifdef DEBUG_WOLFTPM
+        printf("TPM2: Kernel driver not available and no IO callback for SPI\n");
+    #endif
+        return TPM_RC_FAILURE;
+    }
+#ifdef DEBUG_WOLFTPM
+    printf("TPM2: Kernel driver not available, trying SPI\n");
+#endif
+    if (timeoutTries > 0) {
+        rc = TPM2_ChipStartup(ctx, timeoutTries);
+        if (rc != TPM_RC_SUCCESS) {
+            printf("TPM2_Init failed 0x%x: %s\n", rc,
+                wolfTPM2_GetRCString(rc));
+            return rc;
+        }
+    }
+    else {
+        rc = TPM_RC_SUCCESS; /* clear TryOpen sentinel */
+    }
+    /* Fall through to Startup/SelfTest below */
+
+#elif defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_SWTPM) || \
     defined(WOLFTPM_WINAPI)
     rc = TPM2_Init_minimal(ctx);
     /* Using standard file I/O for the Linux TPM device */
@@ -74,9 +123,7 @@ static int wolfTPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     rc = TPM2_Init_ex(ctx, ioCb, userCtx, timeoutTries);
 #endif
     if (rc != TPM_RC_SUCCESS) {
-    #ifdef DEBUG_WOLFTPM
-        printf("TPM2_Init failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
-    #endif
+        printf("TPM2_Init failed 0x%x: %s\n", rc, wolfTPM2_GetRCString(rc));
         return rc;
     }
 #ifdef DEBUG_WOLFTPM
@@ -561,9 +608,6 @@ int wolfTPM2_OpenExisting(WOLFTPM2_DEV* dev, TPM2HalIoCb ioCb, void* userCtx)
     /* The 0 startup indicates use existing locality */
     rc = wolfTPM2_Init_ex(&dev->ctx, ioCb, userCtx, 0);
     if (rc != TPM_RC_SUCCESS) {
-    #ifdef DEBUG_WOLFTPM
-        printf("TPM2_Init failed %d: %s\n", rc, wolfTPM2_GetRCString(rc));
-    #endif
         return rc;
     }
 
@@ -8554,6 +8598,9 @@ static int tpm2_ifx_firmware_start(WOLFTPM2_DEV* dev, TPM_ALG_ID hashAlg,
         #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
             !defined(WOLFTPM_WINAPI)
             /* Do chip startup and request locality again */
+        #ifdef WOLFTPM_LINUX_DEV_AUTODETECT
+            if (dev->ctx.fd < 0) /* Only needed for SPI path */
+        #endif
             rc = TPM2_ChipStartup(&dev->ctx, 10);
         #endif
         }
@@ -8667,6 +8714,9 @@ static int tpm2_ifx_firmware_data(WOLFTPM2_DEV* dev,
     #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
         !defined(WOLFTPM_WINAPI)
         /* Do chip startup and request locality again */
+    #ifdef WOLFTPM_LINUX_DEV_AUTODETECT
+        if (dev->ctx.fd < 0) /* Only needed for SPI path */
+    #endif
         rc = TPM2_ChipStartup(&dev->ctx, 10);
     #endif
     }
@@ -8910,6 +8960,9 @@ static int tpm2_st33_firmware_start_common(WOLFTPM2_DEV* dev,
     #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
         !defined(WOLFTPM_WINAPI)
         /* Do chip startup and request locality again */
+    #ifdef WOLFTPM_LINUX_DEV_AUTODETECT
+        if (dev->ctx.fd < 0) /* Only needed for SPI path */
+    #endif
         rc = TPM2_ChipStartup(&dev->ctx, 10);
     #endif
     }
@@ -9032,6 +9085,9 @@ static int tpm2_st33_firmware_data(WOLFTPM2_DEV* dev,
     #if !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
         !defined(WOLFTPM_WINAPI)
         /* Do chip startup and request locality again */
+    #ifdef WOLFTPM_LINUX_DEV_AUTODETECT
+        if (dev->ctx.fd < 0) /* Only needed for SPI path */
+    #endif
         rc = TPM2_ChipStartup(&dev->ctx, 10);
     #endif
     }

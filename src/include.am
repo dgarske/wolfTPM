@@ -11,11 +11,8 @@ src_libwolftpm_la_SOURCES      = \
                                 src/tpm2_wrap.c \
                                 src/tpm2_asn.c \
                                 src/tpm2_param_enc.c \
-                                src/tpm2_cryptocb.c
-
-if BUILD_DEVTPM
-src_libwolftpm_la_SOURCES      += src/tpm2_linux.c
-endif
+                                src/tpm2_cryptocb.c \
+                                src/tpm2_linux.c
 if BUILD_SWTPM
 src_libwolftpm_la_SOURCES      += src/tpm2_swtpm.c
 endif

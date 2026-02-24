@@ -60,6 +60,9 @@ static THREAD_LS_T TPM2_CTX* gActiveTPM;
 #ifdef WOLFTPM_LINUX_DEV
 #define INTERNAL_SEND_COMMAND      TPM2_LINUX_SendCommand
 #define TPM2_INTERNAL_CLEANUP(ctx)
+#elif defined(WOLFTPM_LINUX_DEV_AUTODETECT)
+#define INTERNAL_SEND_COMMAND      TPM2_LINUX_AUTODETECT_SendCommand
+#define TPM2_INTERNAL_CLEANUP(ctx)
 #elif defined(WOLFTPM_SWTPM)
 #define INTERNAL_SEND_COMMAND      TPM2_SWTPM_SendCommand
 #define TPM2_INTERNAL_CLEANUP(ctx)
@@ -647,6 +650,13 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
     if (ioCb != NULL || userCtx != NULL) {
         return BAD_FUNC_ARG;
     }
+#elif defined(WOLFTPM_LINUX_DEV_AUTODETECT)
+    /* Accept IO callback for SPI fallback path */
+    if (ioCb != NULL) {
+        rc = TPM2_SetHalIoCb(ctx, ioCb, userCtx);
+        if (rc != TPM_RC_SUCCESS)
+            return rc;
+    }
 #else
     #ifdef WOLFTPM_MMIO
     if (ioCb == NULL)
@@ -658,14 +668,18 @@ TPM_RC TPM2_Init_ex(TPM2_CTX* ctx, TPM2HalIoCb ioCb, void* userCtx,
         return rc;
 #endif
 
-#ifdef WOLFTPM_LINUX_DEV
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_LINUX_DEV_AUTODETECT)
     ctx->fd = -1;
 #endif
 
     /* Set the active TPM global */
     TPM2_SetActiveCtx(ctx);
 
-    if (timeoutTries > 0) {
+    if (timeoutTries > 0
+    #ifdef WOLFTPM_LINUX_DEV_AUTODETECT
+        && ctx->ioCb != NULL /* autodetect: skip if no IO callback */
+    #endif
+    ) {
         /* Perform chip startup and assign locality */
         rc = TPM2_ChipStartup(ctx, timeoutTries);
     }
@@ -729,7 +743,8 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
     }
 #endif /* !WOLFTPM2_NO_WOLFCRYPT */
 
-#if defined(WOLFTPM_LINUX_DEV) && !defined(__UBOOT__)
+#if (defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_LINUX_DEV_AUTODETECT)) \
+    && !defined(__UBOOT__)
     if (ctx->fd >= 0)
         close(ctx->fd);
 #endif

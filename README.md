@@ -9,6 +9,7 @@ Portable TPM 2.0 project designed for embedded use.
 * Wrappers provided to simplify Key Generation/Loading, RSA encrypt/decrypt, ECC sign/verify, ECDH, NV, Hashing/HACM, AES, Sealing/Unsealing, Attestation, PCR Extend/Quote and Secure Root of Trust.
 * Testing done using TPM 2.0 modules from STMicro ST33 (SPI/I2C), Infineon OPTIGA SLB9670/SLB9672/SLB9673, Microchip ATTPM20, Nations Tech Z32H330TC/NS350 and Nuvoton NPCT650/NPCT750.
 * wolfTPM uses the TPM Interface Specification (TIS) to communicate either over SPI, or using a memory mapped I/O range.
+* On Linux, wolfTPM auto-detects between the kernel TPM driver (`/dev/tpmX`) and direct SPI access at runtime — a simple `./configure && make` works with either interface.
 * wolfTPM can also use the Linux TPM kernel interface (`/dev/tpmX`) to talk with any physical TPM on SPI, I2C and even LPC bus.
 * Platform support for Raspberry Pi (Linux), MMIO, STM32 with CubeMX, Atmel ASF, Xilinx, QNX Infineon TriCore and Barebox.
 * The design allows for easy portability to different platforms:
@@ -192,12 +193,16 @@ make install
 --enable-firmware       Enable firmware upgrade support for Infineon SLB9672/SLB9673 and ST ST33 (default: disabled) - WOLFTPM_FIRMWARE_UPGRADE
 
 --enable-autodetect     Enable Runtime Module Detection (default: enable - when no module specified) - WOLFTPM_AUTODETECT
+                        On Linux this also auto-detects /dev/tpmrm0 or /dev/tpm0 at runtime,
+                        falling back to SPI if the kernel driver is not available.
 --enable-infineon       Enable Infineon SLB9670/SLB9672/SLB9673 TPM Support (default: disabled) - WOLFTPM_SLB9670 / WOLFTPM_SLB9672
 --enable-st             Enable ST ST33 Support (default: disabled) - WOLFTPM_ST33
 --enable-microchip      Enable Microchip ATTPM20 Support (default: disabled) - WOLFTPM_MICROCHIP
 --enable-nuvoton        Enable Nuvoton NPCT65x/NPCT75x Support (default: disabled) - WOLFTPM_NUVOTON
 
 --enable-devtpm         Enable using Linux kernel driver for /dev/tpmX (default: disabled) - WOLFTPM_LINUX_DEV
+                        Note: With autodetect (default) this is no longer required on Linux;
+                        the kernel driver is tried automatically before SPI.
 --enable-swtpm          Enable using SWTPM TCP protocol. For use with simulator. (default: disabled) - WOLFTPM_SWTPM
 --enable-winapi         Use Windows TBS API. (default: disabled) - WOLFTPM_WINAPI
 
@@ -283,7 +288,15 @@ idf.py build
 
 ### Building for "/dev/tpmX"
 
-The `--enable-devtpm` or `WOLFTPM_LINUX_DEV` build option allows you to use the Linux supplied TPM (TIS) driver.
+**Auto-detection (recommended):** On Linux, a default `./configure && make` will automatically try `/dev/tpmrm0` then `/dev/tpm0` at runtime. If the kernel driver is available it will be used; otherwise wolfTPM falls back to direct SPI access. No special configure options are needed.
+
+```bash
+./autogen.sh
+./configure
+make
+```
+
+Previously, using the kernel TPM driver required the `--enable-devtpm` flag. This is no longer necessary with autodetect (enabled by default). You can still use `--enable-devtpm` to force kernel-driver-only mode, which disables SPI fallback.
 
 To specify a different `/dev/tpmX` device use `CFLAGS="-DTPM2_LINUX_DEV=/dev/tpm1"`
 

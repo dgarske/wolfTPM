@@ -168,7 +168,10 @@ int TPM2_Wrapper_TestArgs(void* userCtx, int argc, char *argv[])
 
     /* Init the TPM2 device */
     rc = wolfTPM2_Init(&dev, TPM2_IoCb, userCtx);
-    if (rc != 0) return rc;
+    if (rc != 0) {
+        printf("wolfTPM2_Init failed\n");
+        return rc;
+    }
 
 #ifdef WOLFTPM_CRYPTOCB
     /* Setup the wolf crypto device callback */

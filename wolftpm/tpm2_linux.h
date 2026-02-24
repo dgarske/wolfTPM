@@ -32,6 +32,17 @@
 /* TPM2 IO for using TPM through the Linux kernel driver */
 WOLFTPM_LOCAL int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet);
 
+#ifdef WOLFTPM_LINUX_DEV_AUTODETECT
+/* Try opening /dev/tpmrm0 then /dev/tpm0. Returns TPM_RC_SUCCESS if opened,
+ * sets ctx->fd. On EACCES prints permission message and returns FAILURE.
+ * Returns TPM_RC_INITIALIZE if device not found (caller should try SPI). */
+WOLFTPM_LOCAL int TPM2_LINUX_TryOpen(TPM2_CTX* ctx);
+
+/* Runtime dispatch: uses /dev/tpm0 if ctx->fd >= 0, otherwise TIS/SPI */
+WOLFTPM_LOCAL int TPM2_LINUX_AUTODETECT_SendCommand(TPM2_CTX* ctx,
+    TPM2_Packet* packet);
+#endif
+
 #ifdef __cplusplus
     }  /* extern "C" */
 #endif

@@ -25,7 +25,7 @@
 
 #include <wolftpm/tpm2_types.h>
 
-#ifdef WOLFTPM_LINUX_DEV
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_LINUX_DEV_AUTODETECT)
 #include <wolftpm/tpm2_linux.h>
 #include <wolftpm/tpm2_packet.h>
 
@@ -194,4 +194,46 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
     return rc;
 }
 #endif /* __UBOOT__ __linux__ */
-#endif /* WOLFTPM_LINUX_DEV */
+
+#ifdef WOLFTPM_LINUX_DEV_AUTODETECT
+#include <wolftpm/tpm2_tis.h>
+
+int TPM2_LINUX_TryOpen(TPM2_CTX* ctx)
+{
+    /* Try resource manager first (kernel 4.12+), then raw device */
+    ctx->fd = open("/dev/tpmrm0", O_RDWR | O_NONBLOCK);
+    if (ctx->fd >= 0) {
+    #ifdef DEBUG_WOLFTPM
+        printf("Opened /dev/tpmrm0\n");
+    #endif
+        return TPM_RC_SUCCESS;
+    }
+
+    ctx->fd = open("/dev/tpm0", O_RDWR | O_NONBLOCK);
+    if (ctx->fd >= 0) {
+    #ifdef DEBUG_WOLFTPM
+        printf("Opened /dev/tpm0\n");
+    #endif
+        return TPM_RC_SUCCESS;
+    }
+
+    /* Distinguish "not available" from "permission denied" */
+    if (errno == EACCES) {
+        printf("Permission denied on /dev/tpm0\n"
+            "Use sudo or add tss group to user.\n");
+        return TPM_RC_FAILURE;
+    }
+
+    /* ENOENT or other: device not present, caller should try SPI */
+    return TPM_RC_INITIALIZE; /* sentinel: "not found, try next" */
+}
+
+int TPM2_LINUX_AUTODETECT_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
+{
+    if (ctx->fd >= 0)
+        return TPM2_LINUX_SendCommand(ctx, packet);
+    return TPM2_TIS_SendCommand(ctx, packet);
+}
+#endif /* WOLFTPM_LINUX_DEV_AUTODETECT */
+
+#endif /* WOLFTPM_LINUX_DEV || WOLFTPM_LINUX_DEV_AUTODETECT */
