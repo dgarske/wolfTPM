@@ -390,6 +390,13 @@ typedef int64_t  INT64;
     #define WOLFTPM_PERFORM_SELFTEST
 #endif
 
+/* On Linux with autodetect, also try /dev/tpm0 kernel driver at runtime */
+#if defined(WOLFTPM_AUTODETECT) && defined(__linux__) && \
+    !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
+    !defined(WOLFTPM_WINAPI)
+    #define WOLFTPM_LINUX_DEV_AUTODETECT
+#endif
+
 /* Chip defaults */
 #if defined(WOLFTPM_SLB9672) || defined(WOLFTPM_SLB9673)
     #ifndef MAX_RSA_KEY_BITS

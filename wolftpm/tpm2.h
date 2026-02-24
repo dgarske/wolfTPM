@@ -1899,7 +1899,7 @@ typedef struct TPM2_CTX {
     unsigned int rngInit:1;
     #endif
 #endif
-#ifdef WOLFTPM_LINUX_DEV
+#if defined(WOLFTPM_LINUX_DEV) || defined(WOLFTPM_LINUX_DEV_AUTODETECT)
     int fd;
 #endif
 } TPM2_CTX;

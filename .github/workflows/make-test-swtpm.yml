@@ -102,6 +102,16 @@ jobs:
             wolftpm_config: --enable-advio
             needs_swtpm: false
 
+          # Autodetect (default configure, /dev/tpm0 + SPI dual support)
+          - name: autodetect
+            wolftpm_config: ""
+            needs_swtpm: false
+
+          # Autodetect with debug
+          - name: autodetect-debug
+            wolftpm_config: --enable-debug
+            needs_swtpm: false
+
           # Clang ASAN
           - name: clang-asan
             wolftpm_cflags: "-fsanitize=address -fno-omit-frame-pointer -g"

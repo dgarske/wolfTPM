@@ -99,9 +99,7 @@
             static char TPM2_SPI_DEV[] = TPM2_SPI_DEV_PATH "0";
             #define MAX_SPI_DEV_CS '4'
             static int foundSpiDev = 0;
-        #ifdef DEBUG_WOLFTPM
             static int spiDevNotFound = 0;
-        #endif
         #else
             #define TPM2_SPI_DEV TPM2_SPI_DEV_PATH TPM2_SPI_DEV_CS
             static int spiOpenFailed = 0;
@@ -218,6 +216,39 @@
     }
 
 #else
+    /* Called when SPI device cannot be opened or no TPM found on SPI bus.
+     * Checks if the Linux kernel TPM driver is available and suggests
+     * alternatives. */
+    static void spiOpenFailedMessage(void)
+    {
+    #ifdef WOLFTPM_LINUX_DEV_AUTODETECT
+        /* Autodetect already tried /dev/tpm0; SPI also failed */
+        #ifdef DEBUG_WOLFTPM
+        printf("Neither /dev/tpm0 nor SPI bus produced a TPM response.\n"
+            "Ensure a TPM is connected and the kernel driver or spidev "
+            "is enabled.\n");
+        #endif
+    #else
+        if (access("/dev/tpm0", F_OK) == 0 ||
+            access("/dev/tpmrm0", F_OK) == 0) {
+            printf("TPM kernel driver detected (/dev/tpm0).\n"
+                "Either build wolfTPM with ./configure --enable-devtpm\n"
+                "or disable the kernel driver by commenting out the TPM\n"
+                "overlay in /boot/config.txt or /boot/firmware/config.txt\n"
+                "and enable spidev to use direct SPI access.\n");
+        }
+        #ifdef DEBUG_WOLFTPM
+        else {
+            printf("If using Linux kernel TPM driver (/dev/tpm0), "
+                "build with --enable-devtpm.\n"
+                "To use SPI directly, make sure /dev/spidev is available "
+                "and the TPM\nkernel overlay is disabled in /boot/config.txt "
+                "or /boot/firmware/config.txt.\n");
+        }
+        #endif
+    #endif /* WOLFTPM_LINUX_DEV_AUTODETECT */
+    }
+
     /* Use Linux SPI synchronous access */
     int TPM2_IoCb_Linux_SPI(TPM2_CTX* ctx, const byte* txBuf, byte* rxBuf,
         word16 xferSz, void* userCtx)
@@ -336,12 +367,13 @@
                         "Use sudo or check device permissions.\n",
                         TPM2_SPI_DEV);
                 }
-            #ifdef DEBUG_WOLFTPM
                 else {
+                #ifdef DEBUG_WOLFTPM
                     printf("Failed to open SPI device %s (errno %d)\n",
                         TPM2_SPI_DEV, errno);
+                #endif
+                    spiOpenFailedMessage();
                 }
-            #endif
             }
         #endif
         }
@@ -362,13 +394,14 @@
                     TPM2_SPI_DEV[devLen-1]++;
                     goto tryagain;
                 }
-            #ifdef DEBUG_WOLFTPM
                 if (!spiDevNotFound) {
                     spiDevNotFound = 1;
+                #ifdef DEBUG_WOLFTPM
                     printf("TPM not found on SPI bus %s[0-%c]\n",
                         TPM2_SPI_DEV_PATH, MAX_SPI_DEV_CS);
+                #endif
+                    spiOpenFailedMessage();
                 }
-            #endif
             }
         }
     #endif
