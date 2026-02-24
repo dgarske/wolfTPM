@@ -7526,15 +7526,28 @@ static int CSR_MakeAndSign(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr, CSRKey* key,
     /* Optionally convert to PEM */
     if (rc >= 0 && outFormat == ENCODING_TYPE_PEM) {
     #ifdef WOLFSSL_DER_TO_PEM
+    #ifdef WOLFTPM_SMALL_STACK
+        byte* tmp = (byte*)XMALLOC(rc, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+        if (tmp == NULL) {
+            rc = MEMORY_E;
+        }
+        else
+    #else
         byte tmp[MAX_CONTEXT_SIZE];
         if (rc > (int)sizeof(tmp)) {
             rc = BUFFER_E;
         }
-        else {
-            XMEMCPY(tmp, out, rc);
+        else
+    #endif
+        {
+            int derSz = rc;
+            XMEMCPY(tmp, out, derSz);
             XMEMSET(out, 0, outSz);
-            rc = wc_DerToPem(tmp, (word32)rc, out, outSz,
+            rc = wc_DerToPem(tmp, (word32)derSz, out, outSz,
                 selfSignCert ? CERT_TYPE : CERTREQ_TYPE);
+        #ifdef WOLFTPM_SMALL_STACK
+            XFREE(tmp, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+        #endif
         }
     #else
         #ifdef DEBUG_WOLFTPM
@@ -7666,15 +7679,28 @@ static int CSR_MakeAndSign_Cb(WOLFTPM2_DEV* dev, WOLFTPM2_CSR* csr,
     /* Optionally convert to PEM */
     if (rc >= 0 && outFormat == ENCODING_TYPE_PEM) {
 #ifdef WOLFSSL_DER_TO_PEM
+    #ifdef WOLFTPM_SMALL_STACK
+        byte* tmp = (byte*)XMALLOC(rc, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+        if (tmp == NULL) {
+            rc = MEMORY_E;
+        }
+        else
+    #else
         byte tmp[MAX_CONTEXT_SIZE];
         if (rc > (int)sizeof(tmp)) {
             rc = BUFFER_E;
         }
-        else {
-            XMEMCPY(tmp, out, rc);
+        else
+    #endif
+        {
+            int derSz = rc;
+            XMEMCPY(tmp, out, derSz);
             XMEMSET(out, 0, outSz);
-            rc = wc_DerToPem(tmp, (word32)rc, out, outSz,
+            rc = wc_DerToPem(tmp, (word32)derSz, out, outSz,
                 selfSignCert ? CERT_TYPE : CERTREQ_TYPE);
+        #ifdef WOLFTPM_SMALL_STACK
+            XFREE(tmp, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+        #endif
         }
 #else
         #ifdef DEBUG_WOLFTPM
