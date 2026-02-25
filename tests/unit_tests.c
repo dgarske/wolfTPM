@@ -411,6 +411,24 @@ static void test_TPM2_PCRSel(void)
         rc == 0 ? "Passed" : "Failed");
 }
 
+/* Test NULL input handling for policy commands (security fix) */
+static void test_TPM2_Policy_NULL_Args(void)
+{
+    int rc;
+
+    /* Test NULL input handling for policy commands */
+    rc = TPM2_PolicyPhysicalPresence(NULL);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    rc = TPM2_PolicyAuthValue(NULL);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    rc = TPM2_PolicyPassword(NULL);
+    AssertIntEQ(rc, BAD_FUNC_ARG);
+
+    printf("Test TPM2:\t\tPolicy NULL Args:\tPassed\n");
+}
+
 static void test_wolfTPM2_Cleanup(void)
 {
     int rc;
@@ -426,6 +444,21 @@ static void test_wolfTPM2_Cleanup(void)
 
     rc = wolfTPM2_Cleanup(&dev);
     AssertIntEQ(rc, 0);
+
+#ifndef WOLFTPM2_NO_HEAP
+    /* Test Free functions handle NULL safely (security fix) */
+    rc = wolfTPM2_FreeKeyBlob(NULL);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    rc = wolfTPM2_FreeKey(NULL);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    rc = wolfTPM2_FreeSession(NULL);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+
+    rc = wolfTPM2_FreePublicTemplate(NULL);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+#endif
 
     printf("Test TPM Wrapper:\tCleanup:\t%s\n",
         rc == 0 ? "Passed" : "Failed");
@@ -1004,6 +1037,7 @@ int unit_tests(int argc, char *argv[])
     test_wolfTPM2_GetCapabilities();
     test_wolfTPM2_GetRandom();
     test_TPM2_PCRSel();
+    test_TPM2_Policy_NULL_Args();
     test_TPM2_KDFa();
     test_GetAlgId();
     test_wolfTPM2_ReadPublicKey();

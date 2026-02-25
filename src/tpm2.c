@@ -851,6 +851,9 @@ TPM_RC TPM2_IncrementalSelfTest(IncrementalSelfTest_In* in,
         rc = TPM2_SendCommand(ctx, &packet);
         if (rc == TPM_RC_SUCCESS) {
             TPM2_Packet_ParseU32(&packet, &out->toDoList.count);
+            if (out->toDoList.count > MAX_ALG_LIST_SIZE) {
+                out->toDoList.count = MAX_ALG_LIST_SIZE;
+            }
             for (i=0; i<(int)out->toDoList.count; i++) {
                 TPM2_Packet_ParseU16(&packet, &out->toDoList.algorithms[i]);
             }
@@ -1163,8 +1166,16 @@ TPM_RC TPM2_PCR_Read(PCR_Read_In* in, PCR_Read_Out* out)
             TPM2_Packet_ParseU32(&packet, &out->pcrUpdateCounter);
             TPM2_Packet_ParsePCR(&packet, &out->pcrSelectionOut);
             TPM2_Packet_ParseU32(&packet, &out->pcrValues.count);
+            if (out->pcrValues.count > 8) {
+                out->pcrValues.count = 8;
+            }
             for (i=0; i<(int)out->pcrValues.count; i++) {
                 TPM2_Packet_ParseU16(&packet, &out->pcrValues.digests[i].size);
+                if (out->pcrValues.digests[i].size >
+                        sizeof(out->pcrValues.digests[i].buffer)) {
+                    out->pcrValues.digests[i].size =
+                        sizeof(out->pcrValues.digests[i].buffer);
+                }
                 TPM2_Packet_ParseBytes(&packet,
                     out->pcrValues.digests[i].buffer,
                     out->pcrValues.digests[i].size);
@@ -2685,6 +2696,9 @@ TPM_RC TPM2_EventSequenceComplete(EventSequenceComplete_In* in,
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
             TPM2_Packet_ParseU32(&packet, &out->results.count);
+            if (out->results.count > HASH_COUNT) {
+                out->results.count = HASH_COUNT;
+            }
             for (i=0; i<(int)out->results.count; i++) {
                 TPM2_Packet_ParseU16(&packet,
                     &out->results.digests[i].hashAlg);
@@ -2876,7 +2890,7 @@ TPM_RC TPM2_GetSessionAuditDigest(GetSessionAuditDigest_In* in,
     if (rc == TPM_RC_SUCCESS) {
         TPM2_Packet packet;
         CmdInfo_t info = {0,0,0,0};
-        info.inHandleCnt = 2;
+        info.inHandleCnt = 3;
         info.flags = (CMD_FLAG_ENC2 | CMD_FLAG_DEC2 | CMD_FLAG_AUTH_USER1 |
             CMD_FLAG_AUTH_USER2);
 
@@ -3292,7 +3306,10 @@ TPM_RC TPM2_PCR_Event(PCR_Event_In* in, PCR_Event_Out* out)
             TPM2_Packet_ParseU32(&packet, &paramSz);
 
             TPM2_Packet_ParseU32(&packet, &out->digests.count);
-            for (i=0; (int)out->digests.count; i++) {
+            if (out->digests.count > HASH_COUNT) {
+                out->digests.count = HASH_COUNT;
+            }
+            for (i=0; i < (int)out->digests.count; i++) {
                 int digestSz;
                 TPM2_Packet_ParseU16(&packet, &out->digests.digests[i].hashAlg);
                 digestSz = TPM2_GetHashDigestSize(
@@ -4019,17 +4036,23 @@ static TPM_RC TPM2_PolicySessionOnly(TPM_CC cc, TPMI_SH_POLICY policy)
 
 TPM_RC TPM2_PolicyPhysicalPresence(PolicyPhysicalPresence_In* in)
 {
+    if (in == NULL)
+        return BAD_FUNC_ARG;
     return TPM2_PolicySessionOnly(TPM_CC_PolicyPhysicalPresence,
         in->policySession);
 }
 
 TPM_RC TPM2_PolicyAuthValue(PolicyAuthValue_In* in)
 {
+    if (in == NULL)
+        return BAD_FUNC_ARG;
     return TPM2_PolicySessionOnly(TPM_CC_PolicyAuthValue, in->policySession);
 }
 
 TPM_RC TPM2_PolicyPassword(PolicyPassword_In* in)
 {
+    if (in == NULL)
+        return BAD_FUNC_ARG;
     return TPM2_PolicySessionOnly(TPM_CC_PolicyPassword, in->policySession);
 }
 

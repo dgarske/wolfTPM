@@ -144,11 +144,12 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
                     rspSz = (int)ret;
                     rc = TPM_RC_SUCCESS;
                 }
-                else if (rspSz == 0) {
+                else if (ret == 0) {
                 #ifdef DEBUG_WOLFTPM
                     printf("Received EOF(0) from %s: errno %d = %s\n",
                         TPM2_LINUX_DEV, errno, strerror(errno));
                 #endif
+                    rc = TPM_RC_FAILURE;
                 }
                 else {
                 #ifdef DEBUG_WOLFTPM
@@ -190,6 +191,8 @@ int TPM2_LINUX_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
         printf("Response size: %d\n", (int)rspSz);
         TPM2_PrintBin(packet->buf, rspSz);
     }
+#else
+    (void)rspSz;
 #endif
     return rc;
 }

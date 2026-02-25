@@ -191,7 +191,10 @@ void TPM2_Packet_ParseBytes(TPM2_Packet* packet, byte* buf, int size)
             int sizeToCopy = size;
             if (packet->pos + sizeToCopy > packet->size)
                 sizeToCopy = packet->size - packet->pos;
-            XMEMCPY(buf, &packet->buf[packet->pos], sizeToCopy);
+            /* Guard against negative sizeToCopy (when pos > size) */
+            if (sizeToCopy > 0) {
+                XMEMCPY(buf, &packet->buf[packet->pos], sizeToCopy);
+            }
         }
         packet->pos += size;
     }
@@ -399,14 +402,32 @@ TPM_ST TPM2_Packet_AppendAuth(TPM2_Packet* packet, TPM2_CTX* ctx, CmdInfo_t* inf
 
 void TPM2_Packet_ParseAuth(TPM2_Packet* packet, TPMS_AUTH_RESPONSE* authRsp)
 {
+    UINT16 wireSize;
+
     if (authRsp == NULL)
         return;
 
-    TPM2_Packet_ParseU16(packet, &authRsp->nonce.size);
+    TPM2_Packet_ParseU16(packet, &wireSize);
+    authRsp->nonce.size = wireSize;
+    if (authRsp->nonce.size > sizeof(authRsp->nonce.buffer)) {
+        authRsp->nonce.size = sizeof(authRsp->nonce.buffer);
+    }
     TPM2_Packet_ParseBytes(packet, authRsp->nonce.buffer, authRsp->nonce.size);
+    /* Skip any remaining bytes to keep packet position synchronized */
+    if (wireSize > authRsp->nonce.size) {
+        TPM2_Packet_ParseBytes(packet, NULL, wireSize - authRsp->nonce.size);
+    }
     TPM2_Packet_ParseU8(packet, &authRsp->sessionAttributes);
-    TPM2_Packet_ParseU16(packet, &authRsp->hmac.size);
+    TPM2_Packet_ParseU16(packet, &wireSize);
+    authRsp->hmac.size = wireSize;
+    if (authRsp->hmac.size > sizeof(authRsp->hmac.buffer)) {
+        authRsp->hmac.size = sizeof(authRsp->hmac.buffer);
+    }
     TPM2_Packet_ParseBytes(packet, authRsp->hmac.buffer, authRsp->hmac.size);
+    /* Skip any remaining bytes to keep packet position synchronized */
+    if (wireSize > authRsp->hmac.size) {
+        TPM2_Packet_ParseBytes(packet, NULL, wireSize - authRsp->hmac.size);
+    }
 }
 
 void TPM2_Packet_AppendPCR(TPM2_Packet* packet, TPML_PCR_SELECTION* pcr)
@@ -552,6 +573,8 @@ void TPM2_Packet_AppendEccPoint(TPM2_Packet* packet, TPMS_ECC_POINT* point)
 }
 void TPM2_Packet_ParseEccPoint(TPM2_Packet* packet, TPMS_ECC_POINT* point)
 {
+    UINT16 wireSize;
+
     if (point == NULL) {
 #ifdef DEBUG_WOLFTPM
         printf("Error null argument passed to TPM2_Packet_ParseEccPoint()\n");
@@ -559,10 +582,26 @@ void TPM2_Packet_ParseEccPoint(TPM2_Packet* packet, TPMS_ECC_POINT* point)
         return; /* help out static analysis */
     }
 
-    TPM2_Packet_ParseU16(packet, &point->x.size);
+    TPM2_Packet_ParseU16(packet, &wireSize);
+    point->x.size = wireSize;
+    if (point->x.size > sizeof(point->x.buffer)) {
+        point->x.size = sizeof(point->x.buffer);
+    }
     TPM2_Packet_ParseBytes(packet, point->x.buffer, point->x.size);
-    TPM2_Packet_ParseU16(packet, &point->y.size);
+    /* Skip any remaining bytes to keep packet position synchronized */
+    if (wireSize > point->x.size) {
+        TPM2_Packet_ParseBytes(packet, NULL, wireSize - point->x.size);
+    }
+    TPM2_Packet_ParseU16(packet, &wireSize);
+    point->y.size = wireSize;
+    if (point->y.size > sizeof(point->y.buffer)) {
+        point->y.size = sizeof(point->y.buffer);
+    }
     TPM2_Packet_ParseBytes(packet, point->y.buffer, point->y.size);
+    /* Skip any remaining bytes to keep packet position synchronized */
+    if (wireSize > point->y.size) {
+        TPM2_Packet_ParseBytes(packet, NULL, wireSize - point->y.size);
+    }
 }
 
 void TPM2_Packet_AppendPoint(TPM2_Packet* packet, TPM2B_ECC_POINT* point)
@@ -818,6 +857,7 @@ void TPM2_Packet_AppendSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
 void TPM2_Packet_ParseSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
 {
     int digestSz;
+    UINT16 wireSize;
 
     TPM2_Packet_ParseU16(packet, &sig->sigAlg);
 
@@ -826,21 +866,54 @@ void TPM2_Packet_ParseSignature(TPM2_Packet* packet, TPMT_SIGNATURE* sig)
     case TPM_ALG_ECDAA:
         TPM2_Packet_ParseU16(packet, &sig->signature.ecdsa.hash);
 
-        TPM2_Packet_ParseU16(packet, &sig->signature.ecdsa.signatureR.size);
+        TPM2_Packet_ParseU16(packet, &wireSize);
+        sig->signature.ecdsa.signatureR.size = wireSize;
+        if (sig->signature.ecdsa.signatureR.size >
+                sizeof(sig->signature.ecdsa.signatureR.buffer)) {
+            sig->signature.ecdsa.signatureR.size =
+                sizeof(sig->signature.ecdsa.signatureR.buffer);
+        }
         TPM2_Packet_ParseBytes(packet, sig->signature.ecdsa.signatureR.buffer,
             sig->signature.ecdsa.signatureR.size);
+        /* Skip any remaining bytes to keep packet position synchronized */
+        if (wireSize > sig->signature.ecdsa.signatureR.size) {
+            TPM2_Packet_ParseBytes(packet, NULL,
+                wireSize - sig->signature.ecdsa.signatureR.size);
+        }
 
-        TPM2_Packet_ParseU16(packet, &sig->signature.ecdsa.signatureS.size);
+        TPM2_Packet_ParseU16(packet, &wireSize);
+        sig->signature.ecdsa.signatureS.size = wireSize;
+        if (sig->signature.ecdsa.signatureS.size >
+                sizeof(sig->signature.ecdsa.signatureS.buffer)) {
+            sig->signature.ecdsa.signatureS.size =
+                sizeof(sig->signature.ecdsa.signatureS.buffer);
+        }
         TPM2_Packet_ParseBytes(packet, sig->signature.ecdsa.signatureS.buffer,
             sig->signature.ecdsa.signatureS.size);
+        /* Skip any remaining bytes to keep packet position synchronized */
+        if (wireSize > sig->signature.ecdsa.signatureS.size) {
+            TPM2_Packet_ParseBytes(packet, NULL,
+                wireSize - sig->signature.ecdsa.signatureS.size);
+        }
         break;
     case TPM_ALG_RSASSA:
     case TPM_ALG_RSAPSS:
         TPM2_Packet_ParseU16(packet, &sig->signature.rsassa.hash);
 
-        TPM2_Packet_ParseU16(packet, &sig->signature.rsassa.sig.size);
+        TPM2_Packet_ParseU16(packet, &wireSize);
+        sig->signature.rsassa.sig.size = wireSize;
+        if (sig->signature.rsassa.sig.size >
+                sizeof(sig->signature.rsassa.sig.buffer)) {
+            sig->signature.rsassa.sig.size =
+                sizeof(sig->signature.rsassa.sig.buffer);
+        }
         TPM2_Packet_ParseBytes(packet, sig->signature.rsassa.sig.buffer,
             sig->signature.rsassa.sig.size);
+        /* Skip any remaining bytes to keep packet position synchronized */
+        if (wireSize > sig->signature.rsassa.sig.size) {
+            TPM2_Packet_ParseBytes(packet, NULL,
+                wireSize - sig->signature.rsassa.sig.size);
+        }
         break;
     case TPM_ALG_HMAC:
         TPM2_Packet_ParseU16(packet, &sig->signature.hmac.hashAlg);

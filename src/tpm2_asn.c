@@ -326,6 +326,14 @@ int TPM2_ASN_DecodeRsaPubKey(uint8_t* input, int inputSz,
     if (rc == 0) {
         idx += mod_len;
         rc = TPM2_ASN_DecodeTag(input, inputSz, &idx, &exp_len, TPM2_ASN_INTEGER);
+    }
+    if (rc == 0) {
+        /* Validate exp_len and idx before accessing input buffer */
+        if (exp_len <= 0 || idx >= inputSz) {
+            rc = -1;
+        }
+    }
+    if (rc == 0) {
         if (input[idx] == 0x00) {
             idx++;
             exp_len--;

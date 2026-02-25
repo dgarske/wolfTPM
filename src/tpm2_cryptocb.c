@@ -613,8 +613,8 @@ int wolfTPM2_CryptoDevCb(int devId, wc_CryptoInfo* info, void* ctx)
         if (hmacCtx && hmacCtx->hash.handle.hndl == 0) {
         #ifdef DEBUG_WOLFTPM
             printf("Error: HMAC context invalid!\n");
-            return BAD_FUNC_ARG;
         #endif
+            return BAD_FUNC_ARG;
         }
 
         if (info->hmac.in != NULL) { /* Update */

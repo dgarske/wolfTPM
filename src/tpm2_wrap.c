@@ -264,6 +264,7 @@ WOLFTPM2_KEYBLOB* wolfTPM2_NewKeyBlob(void)
 int wolfTPM2_FreeKeyBlob(WOLFTPM2_KEYBLOB* blob)
 {
     if (blob != NULL) {
+        TPM2_ForceZero(blob, sizeof(WOLFTPM2_KEYBLOB));
         XFREE(blob, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     }
     return TPM_RC_SUCCESS;
@@ -281,6 +282,7 @@ TPMT_PUBLIC* wolfTPM2_NewPublicTemplate(void)
 int wolfTPM2_FreePublicTemplate(TPMT_PUBLIC* PublicTemplate)
 {
     if (PublicTemplate != NULL) {
+        TPM2_ForceZero(PublicTemplate, sizeof(TPMT_PUBLIC));
         XFREE(PublicTemplate, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     }
     return TPM_RC_SUCCESS;
@@ -298,6 +300,7 @@ WOLFTPM2_KEY* wolfTPM2_NewKey(void)
 int wolfTPM2_FreeKey(WOLFTPM2_KEY* key)
 {
     if (key != NULL) {
+        TPM2_ForceZero(key, sizeof(WOLFTPM2_KEY));
         XFREE(key, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     }
     return TPM_RC_SUCCESS;
@@ -315,6 +318,7 @@ WOLFTPM2_SESSION* wolfTPM2_NewSession(void)
 int wolfTPM2_FreeSession(WOLFTPM2_SESSION* session)
 {
     if (session != NULL) {
+        TPM2_ForceZero(session, sizeof(WOLFTPM2_SESSION));
         XFREE(session, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     }
     return TPM_RC_SUCCESS;
@@ -340,6 +344,7 @@ WOLFTPM2_CSR* wolfTPM2_NewCSR(void)
 int wolfTPM2_FreeCSR(WOLFTPM2_CSR* csr)
 {
     if (csr != NULL) {
+        TPM2_ForceZero(csr, sizeof(WOLFTPM2_CSR));
         XFREE(csr, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     }
     return TPM_RC_SUCCESS;
@@ -4551,12 +4556,12 @@ int wolfTPM2_ECDHEGenZ(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* parentKey,
     wolfTPM2_SetAuthHandle(dev, 0, &parentKey->handle);
 
     XMEMSET(&inZGen2Ph, 0, sizeof(inZGen2Ph));
-    inZGen2Ph.keyA = ecdhKey->handle.hndl;
+    inZGen2Ph.keyA = parentKey->handle.hndl;
+    inZGen2Ph.counter = (UINT16)ecdhKey->handle.hndl;
     ecdhKey->handle.hndl = TPM_RH_NULL;
     XMEMCPY(&inZGen2Ph.inQsB.point, &pubPoint->point, sizeof(TPMS_ECC_POINT));
     XMEMCPY(&inZGen2Ph.inQeB.point, &pubPoint->point, sizeof(TPMS_ECC_POINT));
     inZGen2Ph.inScheme = TPM_ALG_ECDH;
-    inZGen2Ph.counter = (UINT16)ecdhKey->handle.hndl;
 
     rc = TPM2_ZGen_2Phase(&inZGen2Ph, &outZGen2Ph);
     if (rc != TPM_RC_SUCCESS) {

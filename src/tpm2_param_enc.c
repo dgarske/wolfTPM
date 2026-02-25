@@ -203,8 +203,14 @@ static int TPM2_ParamEnc_XOR(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
     TPM2B_DATA keyIn;
     TPM2B_MAX_BUFFER mask;
     UINT32 i;
+    UINT16 bindKeySz = (bindKey != NULL) ? bindKey->size : 0;
 
     if (paramSz > sizeof(mask.buffer)) {
+        return BUFFER_E;
+    }
+
+    /* Validate key sizes before copy to prevent buffer overflow */
+    if (sessKey->size + bindKeySz > sizeof(keyIn.buffer)) {
         return BUFFER_E;
     }
 
@@ -224,16 +230,21 @@ static int TPM2_ParamEnc_XOR(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
     #ifdef DEBUG_WOLFTPM
         printf("KDFa XOR Gen Error %d\n", rc);
     #endif
-        return TPM_RC_FAILURE;
+        rc = TPM_RC_FAILURE;
+    }
+    else {
+        /* Perform XOR */
+        for (i = 0; i < paramSz; i++) {
+            paramData[i] = paramData[i] ^ mask.buffer[i];
+        }
+
+        /* Data size matched and data encryption completed at this point */
+        rc = TPM_RC_SUCCESS;
     }
 
-    /* Perform XOR */
-    for (i = 0; i < paramSz; i++) {
-        paramData[i] = paramData[i] ^ mask.buffer[i];
-    }
-
-    /* Data size matched and data encryption completed at this point */
-    rc = TPM_RC_SUCCESS;
+    /* Clear sensitive key material from stack */
+    TPM2_ForceZero(&keyIn, sizeof(keyIn));
+    TPM2_ForceZero(&mask, sizeof(mask));
 
     return rc;
 }
@@ -247,8 +258,14 @@ static int TPM2_ParamDec_XOR(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
     TPM2B_DATA keyIn;
     TPM2B_MAX_BUFFER mask;
     UINT32 i;
+    UINT16 bindKeySz = (bindKey != NULL) ? bindKey->size : 0;
 
     if (paramSz > sizeof(mask.buffer)) {
+        return BUFFER_E;
+    }
+
+    /* Validate key sizes before copy to prevent buffer overflow */
+    if (sessKey->size + bindKeySz > sizeof(keyIn.buffer)) {
         return BUFFER_E;
     }
 
@@ -268,15 +285,20 @@ static int TPM2_ParamDec_XOR(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
     #ifdef DEBUG_WOLFTPM
         printf("KDFa XOR Gen Error %d\n", rc);
     #endif
-        return TPM_RC_FAILURE;
+        rc = TPM_RC_FAILURE;
+    }
+    else {
+        /* Perform XOR */
+        for (i = 0; i < paramSz; i++) {
+            paramData[i] = paramData[i] ^ mask.buffer[i];
+        }
+        /* Data size matched and data encryption completed at this point */
+        rc = TPM_RC_SUCCESS;
     }
 
-    /* Perform XOR */
-    for (i = 0; i < paramSz; i++) {
-        paramData[i] = paramData[i] ^ mask.buffer[i];
-    }
-    /* Data size matched and data encryption completed at this point */
-    rc = TPM_RC_SUCCESS;
+    /* Clear sensitive key material from stack */
+    TPM2_ForceZero(&keyIn, sizeof(keyIn));
+    TPM2_ForceZero(&mask, sizeof(mask));
 
     return rc;
 }
@@ -293,8 +315,14 @@ static int TPM2_ParamEnc_AESCFB(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
     int symKeySz = session->symmetric.keyBits.aes / 8;
     const int symKeyIvSz = 16;
     Aes enc;
+    UINT16 bindKeySz = (bindKey != NULL) ? bindKey->size : 0;
 
     if (symKeySz > 32) {
+        return BUFFER_E;
+    }
+
+    /* Validate key sizes before copy to prevent buffer overflow */
+    if (sessKey->size + bindKeySz > sizeof(keyIn.buffer)) {
         return BUFFER_E;
     }
 
@@ -314,25 +342,30 @@ static int TPM2_ParamEnc_AESCFB(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
     #ifdef DEBUG_WOLFTPM
         printf("KDFa CFB Gen Error %d\n", rc);
     #endif
-        return TPM_RC_FAILURE;
+        rc = TPM_RC_FAILURE;
     }
+    else {
+    #ifdef WOLFTPM_DEBUG_VERBOSE
+        printf("AES Enc Key %d, IV %d\n", symKeySz, symKeyIvSz);
+        TPM2_PrintBin(symKey, symKeySz);
+        TPM2_PrintBin(&symKey[symKeySz], symKeyIvSz);
+    #endif
 
-#ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("AES Enc Key %d, IV %d\n", symKeySz, symKeyIvSz);
-    TPM2_PrintBin(symKey, symKeySz);
-    TPM2_PrintBin(&symKey[symKeySz], symKeyIvSz);
-#endif
-
-    /* Perform AES CFB Encryption */
-    rc = wc_AesInit(&enc, NULL, INVALID_DEVID);
-    if (rc == 0) {
-        rc = wc_AesSetKey(&enc, symKey, symKeySz, &symKey[symKeySz],
-            AES_ENCRYPTION);
+        /* Perform AES CFB Encryption */
+        rc = wc_AesInit(&enc, NULL, INVALID_DEVID);
         if (rc == 0) {
-            rc = wc_AesCfbEncrypt(&enc, paramData, paramData, paramSz);
+            rc = wc_AesSetKey(&enc, symKey, symKeySz, &symKey[symKeySz],
+                AES_ENCRYPTION);
+            if (rc == 0) {
+                rc = wc_AesCfbEncrypt(&enc, paramData, paramData, paramSz);
+            }
+            wc_AesFree(&enc);
         }
-        wc_AesFree(&enc);
     }
+
+    /* Clear sensitive key material from stack */
+    TPM2_ForceZero(&keyIn, sizeof(keyIn));
+    TPM2_ForceZero(symKey, sizeof(symKey));
 
     return rc;
 }
@@ -348,8 +381,14 @@ static int TPM2_ParamDec_AESCFB(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
     int symKeySz = session->symmetric.keyBits.aes / 8;
     const int symKeyIvSz = 16;
     Aes dec;
+    UINT16 bindKeySz = (bindKey != NULL) ? bindKey->size : 0;
 
     if (symKeySz > 32) {
+        return BUFFER_E;
+    }
+
+    /* Validate key sizes before copy to prevent buffer overflow */
+    if (sessKey->size + bindKeySz > sizeof(keyIn.buffer)) {
         return BUFFER_E;
     }
 
@@ -369,25 +408,30 @@ static int TPM2_ParamDec_AESCFB(TPM2_AUTH_SESSION *session, TPM2B_AUTH* sessKey,
     #ifdef DEBUG_WOLFTPM
         printf("KDFa CFB Gen Error %d\n", rc);
     #endif
-        return TPM_RC_FAILURE;
+        rc = TPM_RC_FAILURE;
     }
+    else {
+    #ifdef WOLFTPM_DEBUG_VERBOSE
+        printf("AES Dec Key %d, IV %d\n", symKeySz, symKeyIvSz);
+        TPM2_PrintBin(symKey, symKeySz);
+        TPM2_PrintBin(&symKey[symKeySz], symKeyIvSz);
+    #endif
 
-#ifdef WOLFTPM_DEBUG_VERBOSE
-    printf("AES Dec Key %d, IV %d\n", symKeySz, symKeyIvSz);
-    TPM2_PrintBin(symKey, symKeySz);
-    TPM2_PrintBin(&symKey[symKeySz], symKeyIvSz);
-#endif
-
-    /* Perform AES CFB Decryption */
-    rc = wc_AesInit(&dec, NULL, INVALID_DEVID);
-    if (rc == 0) {
-        rc = wc_AesSetKey(&dec, symKey, symKeySz, &symKey[symKeySz],
-            AES_ENCRYPTION);
+        /* Perform AES CFB Decryption */
+        rc = wc_AesInit(&dec, NULL, INVALID_DEVID);
         if (rc == 0) {
-            rc = wc_AesCfbDecrypt(&dec, paramData, paramData, paramSz);
+            rc = wc_AesSetKey(&dec, symKey, symKeySz, &symKey[symKeySz],
+                AES_ENCRYPTION);
+            if (rc == 0) {
+                rc = wc_AesCfbDecrypt(&dec, paramData, paramData, paramSz);
+            }
+            wc_AesFree(&dec);
         }
-        wc_AesFree(&dec);
     }
+
+    /* Clear sensitive key material from stack */
+    TPM2_ForceZero(&keyIn, sizeof(keyIn));
+    TPM2_ForceZero(symKey, sizeof(symKey));
 
     return rc;
 }
