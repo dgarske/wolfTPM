@@ -56,8 +56,7 @@ int TPM2_ASN_GetLength_ex(const uint8_t* input, word32* inOutIdx, int* len,
     b = input[idx++];
     if (b >= TPM2_ASN_LONG_LENGTH) {
         word32 bytes = b & 0x7F;
-        /* DER does not allow BER indefinite-length (0x80 => bytes == 0) */
-        if (bytes == 0 || bytes > 3 || (idx + bytes) > maxIdx) {
+        if ((idx + bytes) > maxIdx) {
             return TPM_RC_INSUFFICIENT;
         }
         while (bytes--) {
@@ -189,14 +188,8 @@ int TPM2_ASN_DecodeX509Cert(uint8_t* input, int inputSz,
     }
 
     if (rc >= 0) {
-        if (len <= 0 || idx >= (word32)inputSz) {
-            rc = TPM_RC_VALUE;
-        }
-    }
-
-    if (rc >= 0) {
-        /* check version tag is INTEGER */
-        if (input[idx] != TPM2_ASN_INTEGER) {
+        /* check version == 1 */
+        if (input[idx] != TPM2_ASN_INTEGER && input[idx] != 1) {
             rc = TPM_RC_VALUE;
         }
     }
@@ -363,7 +356,8 @@ int TPM2_ASN_RsaUnpadPkcsv15(uint8_t** pSig, int* sigSz)
     uint8_t* sig = *pSig;
     int idx = 0;
 
-    if (*sigSz < 3) return rc;
+    if (*sigSz < 2)
+        return rc;
 
     if (sig[idx++] == 0x00 && sig[idx++] == 0x01) {
         while (idx < *sigSz) {

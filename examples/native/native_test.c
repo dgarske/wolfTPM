@@ -110,6 +110,8 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         ECC_Parameters_In eccParam;
         ECDH_KeyGen_In ecdh;
         ECDH_ZGen_In ecdhZ;
+        EC_Ephemeral_In ecEph;
+        ZGen_2Phase_In zgen2;
         EncryptDecrypt2_In encDec;
         CertifyCreation_In certifyCreation;
         HMAC_In hmac;
@@ -150,6 +152,8 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         ECC_Parameters_Out eccParam;
         ECDH_KeyGen_Out ecdh;
         ECDH_ZGen_Out ecdhZ;
+        EC_Ephemeral_Out ecEph;
+        ZGen_2Phase_Out zgen2;
         EncryptDecrypt2_Out encDec;
         CertifyCreation_Out certifyCreation;
         HMAC_Out hmac;
@@ -547,8 +551,9 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
 #ifndef WOLFTPM2_NO_WOLFCRYPT
     /* calculate session key */
     sessionAuth.size = TPM2_GetHashDigestSize(cmdIn.authSes.authHash);
-    rc = TPM2_KDFa(cmdIn.authSes.authHash, NULL, "ATH",
-            &cmdOut.authSes.nonceTPM, &cmdIn.authSes.nonceCaller,
+    rc = TPM2_KDFa(cmdIn.authSes.authHash, NULL, 0, "ATH",
+            cmdOut.authSes.nonceTPM.buffer, cmdOut.authSes.nonceTPM.size,
+            cmdIn.authSes.nonceCaller.buffer, cmdIn.authSes.nonceCaller.size,
             sessionAuth.buffer, sessionAuth.size);
     if (rc != sessionAuth.size) {
         printf("KDFa ATH Gen Error %d\n", rc);
@@ -1146,6 +1151,56 @@ int TPM2_Native_TestArgs(void* userCtx, int argc, char *argv[])
         rc = -1; /* fail */
     }
     printf("TPM2 ECC Shared Secret %s\n", rc == 0 ? "Pass" : "Fail");
+
+    /* EC_Ephemeral (generate ephemeral point for two-phase key exchange) */
+    XMEMSET(&cmdIn.ecEph, 0, sizeof(cmdIn.ecEph));
+    cmdIn.ecEph.curveID = TPM_ECC_NIST_P256;
+    rc = TPM2_EC_Ephemeral(&cmdIn.ecEph, &cmdOut.ecEph);
+    if (rc == TPM_RC_SUCCESS) {
+        printf("TPM2_EC_Ephemeral: Q size %d, counter %d\n",
+            cmdOut.ecEph.Q.size, cmdOut.ecEph.counter);
+
+        /* ZGen_2Phase (two-phase key exchange using static key + ephemeral) */
+        XMEMSET(&cmdIn.zgen2, 0, sizeof(cmdIn.zgen2));
+        cmdIn.zgen2.keyA = eccKey.handle;
+        /* Use the ECDH_KeyGen pubPoint as simulated party B static public */
+        cmdIn.zgen2.inQsB = cmdOut.ecdh.pubPoint;
+        /* Use the EC_Ephemeral Q as simulated party B ephemeral public */
+        cmdIn.zgen2.inQeB = cmdOut.ecEph.Q;
+        cmdIn.zgen2.inScheme = TPM_ALG_ECDH;
+        cmdIn.zgen2.counter = cmdOut.ecEph.counter;
+        rc = TPM2_ZGen_2Phase(&cmdIn.zgen2, &cmdOut.zgen2);
+        if (rc == TPM_RC_SUCCESS) {
+            printf("TPM2_ZGen_2Phase: outZ1 %d, outZ2 %d\n",
+                cmdOut.zgen2.outZ1.size, cmdOut.zgen2.outZ2.size);
+            if (cmdOut.zgen2.outZ1.size == 0 ||
+                cmdOut.zgen2.outZ2.size == 0) {
+                printf("TPM2_ZGen_2Phase: FAIL (empty output)\n");
+                rc = -1;
+                goto exit;
+            }
+            printf("TPM2 Two-Phase ECDH Pass\n");
+        }
+        else if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc)) {
+            printf("TPM2_ZGen_2Phase: not supported by TPM\n");
+            rc = TPM_RC_SUCCESS;
+        }
+        else {
+            printf("TPM2_ZGen_2Phase failed 0x%x: %s\n", rc,
+                TPM2_GetRCString(rc));
+            goto exit;
+        }
+    }
+    else if (WOLFTPM_IS_COMMAND_UNAVAILABLE(rc) ||
+             (rc & RC_MAX_FMT1) == TPM_RC_CURVE) {
+        printf("TPM2_EC_Ephemeral: not supported by TPM\n");
+        rc = TPM_RC_SUCCESS;
+    }
+    else {
+        printf("TPM2_EC_Ephemeral failed 0x%x: %s\n", rc,
+            TPM2_GetRCString(rc));
+        goto exit;
+    }
 
     cmdIn.flushCtx.flushHandle = eccKey.handle;
     eccKey.handle = TPM_RH_NULL;

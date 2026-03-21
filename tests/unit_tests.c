@@ -527,8 +527,9 @@ static void test_TPM2_KDFa(void)
         0xd7, 0x04, 0xb6, 0x9a, 0x90, 0x2e, 0x9a, 0xde, 0x84, 0xc4};
 #endif
 
-    rc = TPM2_KDFa(TPM_ALG_SHA256, &keyIn, label, &contextU, &contextV, key,
-        keyIn.size);
+    rc = TPM2_KDFa(TPM_ALG_SHA256, keyIn.buffer, keyIn.size, label,
+        contextU.buffer, contextU.size, contextV.buffer, contextV.size,
+        key, keyIn.size);
 #ifdef WOLFTPM2_NO_WOLFCRYPT
     AssertIntEQ(NOT_COMPILED_IN, rc);
 #else

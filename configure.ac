@@ -242,7 +242,7 @@ AC_ARG_WITH([swtpm-port],
     ]
 )
 
-if test "x$ENABLED_SWTPM" = "xyes"
+if test "x$ENABLED_SWTPM" = "xyes" || test "x$ENABLED_SWTPM" = "xuart"
 then
     if test "x$ENABLED_DEVTPM" = "xyes"
     then
@@ -250,7 +250,18 @@ then
     fi
 
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SWTPM"
-    AM_CFLAGS="$AM_CFLAGS -DTPM2_SWTPM_PORT=$SWTPM_PORT"
+
+    if test "x$ENABLED_SWTPM" = "xuart"
+    then
+        AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_SWTPM_UART"
+        # For UART, port is baud rate (default 115200)
+        if test "x$SWTPM_PORT" = "x2321"; then
+            SWTPM_PORT="115200"
+        fi
+        AM_CFLAGS="$AM_CFLAGS -DTPM2_SWTPM_PORT=$SWTPM_PORT"
+    else
+        AM_CFLAGS="$AM_CFLAGS -DTPM2_SWTPM_PORT=$SWTPM_PORT"
+    fi
 
     # Set distcheck flag if port is not default (only when SWTPM is enabled)
     if test "x$SWTPM_PORT" != "x2321"; then
@@ -264,6 +275,58 @@ fi
 
 AC_SUBST([SWTPM_PORT])
 AC_SUBST([DISTCHECK_SWTPM_PORT_FLAG])
+
+# Firmware TPM (fwTPM) - software TPM 2.0 simulator
+AC_ARG_ENABLE([fwtpm],
+    [AS_HELP_STRING([--enable-fwtpm],[Enable firmware TPM (fwTPM) server (default: disabled)])],
+    [ ENABLED_FWTPM=$enableval ],
+    [ ENABLED_FWTPM=no ]
+    )
+
+if test "x$ENABLED_FWTPM" = "xyes"
+then
+    # fwTPM requires wolfCrypt for all cryptographic operations
+    if test "x$ENABLED_WOLFCRYPT" != "xyes"
+    then
+        AC_MSG_ERROR([fwTPM requires wolfCrypt. Do not use --disable-wolfcrypt with --enable-fwtpm.])
+    fi
+    # WOLFTPM_FWTPM is set only for fwtpm_server target in src/fwtpm/include.am
+    # Do not add to AM_CFLAGS - it would exclude client-side code from the library
+    if test "x$ENABLED_SWTPM" != "xyes"
+    then
+        # TIS/shared-memory transport for fwTPM (instead of socket)
+        AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_FWTPM_HAL -DWOLFTPM_ADV_IO"
+        ENABLED_FWTPM_TIS=yes
+    fi
+fi
+
+# Firmware TPM only (no client library, examples, or tests)
+AC_ARG_ENABLE([fwtpm-only],
+    [AS_HELP_STRING([--enable-fwtpm-only],[Build only the fwTPM server, skip client library and examples (default: disabled)])],
+    [ ENABLED_FWTPM_ONLY=$enableval ],
+    [ ENABLED_FWTPM_ONLY=no ]
+    )
+
+if test "x$ENABLED_FWTPM_ONLY" = "xyes"
+then
+    ENABLED_FWTPM=yes
+    ENABLED_EXAMPLES=no
+    ENABLED_WRAPPER=no
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM2_NO_WRAPPER"
+    if test "x$ENABLED_SWTPM" != "xyes"
+    then
+        AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_FWTPM_HAL -DWOLFTPM_ADV_IO"
+        ENABLED_FWTPM_TIS=yes
+    fi
+fi
+
+# Fuzz target
+AC_ARG_ENABLE([fuzz],
+    [AS_HELP_STRING([--enable-fuzz],[Enable fuzz targets (default: disabled)])],
+    [ ENABLED_FUZZ=$enableval ],
+    [ ENABLED_FUZZ=no ]
+    )
+AM_CONDITIONAL([BUILD_FUZZ], [test "x$ENABLED_FUZZ" = "xyes"])
 
 # Windows TBS device Support
 AC_ARG_ENABLE([wintbs],,
@@ -486,13 +549,16 @@ AM_CONDITIONAL([BUILD_ST33], [test "x$ENABLED_ST33" = "xyes"])
 AM_CONDITIONAL([BUILD_MICROCHIP], [test "x$ENABLED_MICROCHIP" = "xyes"])
 AM_CONDITIONAL([BUILD_INFINEON], [test "x$ENABLED_INFINEON" != "xno"])
 AM_CONDITIONAL([BUILD_DEVTPM], [test "x$ENABLED_DEVTPM" = "xyes"])
-AM_CONDITIONAL([BUILD_SWTPM], [test "x$ENABLED_SWTPM" = "xyes"])
+AM_CONDITIONAL([BUILD_SWTPM], [test "x$ENABLED_SWTPM" = "xyes" || test "x$ENABLED_SWTPM" = "xuart"])
 AM_CONDITIONAL([BUILD_WINAPI], [test "x$ENABLED_WINAPI" = "xyes"])
 AM_CONDITIONAL([BUILD_NUVOTON], [test "x$ENABLED_NUVOTON" = "xyes"])
 AM_CONDITIONAL([BUILD_CHECKWAITSTATE], [test "x$ENABLED_CHECKWAITSTATE" = "xyes"])
 AM_CONDITIONAL([BUILD_AUTODETECT], [test "x$ENABLED_AUTODETECT" = "xyes"])
 AM_CONDITIONAL([BUILD_FIRMWARE], [test "x$ENABLED_FIRMWARE" = "xyes"])
-AM_CONDITIONAL([BUILD_HAL], [test "x$ENABLED_EXAMPLE_HAL" = "xyes" || test "x$ENABLED_MMIO" = "xyes"])
+AM_CONDITIONAL([BUILD_FWTPM], [test "x$ENABLED_FWTPM" = "xyes"])
+AM_CONDITIONAL([BUILD_FWTPM_ONLY], [test "x$ENABLED_FWTPM_ONLY" = "xyes"])
+AM_CONDITIONAL([BUILD_FWTPM_TIS], [test "x$ENABLED_FWTPM_TIS" = "xyes"])
+AM_CONDITIONAL([BUILD_HAL], [test "x$ENABLED_EXAMPLE_HAL" = "xyes" || test "x$ENABLED_MMIO" = "xyes" || test "x$ENABLED_FWTPM_TIS" = "xyes"])
 
 
 CREATE_HEX_VERSION
@@ -620,5 +686,8 @@ echo "   * STM ST33:                  $ENABLED_ST"
 echo "   * Microchip ATTPM20:         $ENABLED_MICROCHIP"
 echo "   * Nuvoton NPCT75x:           $ENABLED_NUVOTON"
 
+echo "   * fwTPM Server:              $ENABLED_FWTPM"
+echo "   * fwTPM Only (no client):   $ENABLED_FWTPM_ONLY"
+echo "   * fwTPM TIS/SHM:            $ENABLED_FWTPM_TIS"
 echo "   * Runtime Module Detection:  $ENABLED_AUTODETECT"
 echo "   * Firmware Upgrade Support:  $ENABLED_FIRMWARE"
