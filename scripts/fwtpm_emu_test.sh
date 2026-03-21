@@ -62,7 +62,7 @@ echo "  TZEN: $TZEN"
 if [ $DO_BUILD -eq 1 ]; then
     echo "Building fwTPM STM32 (TZEN=$TZEN, SELFTEST=1)..."
     make -C "$PORT_DIR" clean > /dev/null 2>&1
-    if ! make -C "$PORT_DIR" TZEN=$TZEN SELFTEST=1 > /tmp/fwtpm_emu_build.log 2>&1; then
+    if ! make -C "$PORT_DIR" ${WOLFSSL_DIR:+WOLFSSL_DIR="$WOLFSSL_DIR"} TZEN=$TZEN SELFTEST=1 > /tmp/fwtpm_emu_build.log 2>&1; then
         echo "FAIL: Build failed"
         tail -20 /tmp/fwtpm_emu_build.log
         exit 1

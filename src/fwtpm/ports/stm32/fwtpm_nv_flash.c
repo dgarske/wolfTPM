@@ -31,6 +31,7 @@
 static int StmFlashRead(void* ctx, word32 offset, byte* buf, word32 size)
 {
     volatile const byte* src;
+    word32 i;
     (void)ctx;
 
     if (offset + size > FWTPM_NV_FLASH_SIZE) {
@@ -38,7 +39,9 @@ static int StmFlashRead(void* ctx, word32 offset, byte* buf, word32 size)
     }
 
     src = (volatile const byte*)(FWTPM_NV_FLASH_BASE + offset);
-    memcpy(buf, (const void*)src, size);
+    for (i = 0; i < size; i++) {
+        buf[i] = src[i];
+    }
     return TPM_RC_SUCCESS;
 }
 
@@ -63,6 +66,7 @@ static int StmFlashWrite(void* ctx, word32 offset, const byte* buf,
 
     status = HAL_FLASH_Unlock();
     if (status != HAL_OK) {
+        HAL_ICACHE_Invalidate();
         HAL_ICACHE_Enable();
         return TPM_RC_FAILURE;
     }
@@ -92,6 +96,7 @@ static int StmFlashWrite(void* ctx, word32 offset, const byte* buf,
     }
 
     HAL_FLASH_Lock();
+    HAL_ICACHE_Invalidate();
     HAL_ICACHE_Enable();
 
     return (status == HAL_OK) ? TPM_RC_SUCCESS : TPM_RC_FAILURE;
@@ -122,6 +127,7 @@ static int StmFlashErase(void* ctx, word32 offset, word32 size)
 
     status = HAL_FLASH_Unlock();
     if (status != HAL_OK) {
+        HAL_ICACHE_Invalidate();
         HAL_ICACHE_Enable();
         return TPM_RC_FAILURE;
     }
@@ -134,6 +140,7 @@ static int StmFlashErase(void* ctx, word32 offset, word32 size)
     status = HAL_FLASHEx_Erase(&eraseInit, &sectorError);
 
     HAL_FLASH_Lock();
+    HAL_ICACHE_Invalidate();
     HAL_ICACHE_Enable();
 
     return (status == HAL_OK) ? TPM_RC_SUCCESS : TPM_RC_FAILURE;

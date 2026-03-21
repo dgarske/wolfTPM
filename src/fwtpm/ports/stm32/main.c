@@ -37,7 +37,10 @@ UART_HandleTypeDef huart3;
 RNG_HandleTypeDef hrng;
 
 /* Global fwTPM context pointer (used by fwtpm_nsc.c) */
-FWTPM_CTX* g_fwtpmCtx = NULL;
+volatile FWTPM_CTX* g_fwtpmCtx = NULL;
+
+/* Static fwTPM context (avoids heap fragmentation on constrained targets) */
+static FWTPM_CTX g_ctx;
 
 /* UART command loop */
 static void FwTPM_UartCommandLoop(FWTPM_CTX* ctx);
@@ -104,14 +107,9 @@ int main(void)
 
     printf("\r\n=== wolfTPM fwTPM Server (STM32H5 Secure) ===\r\n");
 
-    /* Allocate fwTPM context on heap (~152KB) */
-    ctx = (FWTPM_CTX*)malloc(sizeof(FWTPM_CTX));
-    if (ctx == NULL) {
-        printf("ERROR: Failed to allocate FWTPM_CTX (%u bytes)\r\n",
-            (unsigned int)sizeof(FWTPM_CTX));
-        Error_Handler();
-    }
-    memset(ctx, 0, sizeof(FWTPM_CTX));
+    /* Use static fwTPM context (avoids heap fragmentation) */
+    memset(&g_ctx, 0, sizeof(g_ctx));
+    ctx = &g_ctx;
 
     /* Register NV flash HAL */
     FWTPM_NV_FlashHAL_Init(&nvHal);
@@ -164,7 +162,6 @@ int main(void)
 
     /* Should not reach here */
     FWTPM_Cleanup(ctx);
-    free(ctx);
     return 0;
 }
 

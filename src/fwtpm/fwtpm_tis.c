@@ -159,7 +159,12 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
             case FWTPM_TIS_XDATA_FIFO: {
                 /* Write command data to FIFO */
                 UINT32 i;
-                UINT32 space = FWTPM_TIS_FIFO_SIZE - regs->fifo_write_pos;
+                UINT32 space;
+                /* Clamp len to reg_data buffer size */
+                if (len > sizeof(regs->reg_data)) {
+                    len = (UINT32)sizeof(regs->reg_data);
+                }
+                space = FWTPM_TIS_FIFO_SIZE - regs->fifo_write_pos;
                 if (len > space) {
                     len = space;
                 }
@@ -178,6 +183,16 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
                  * is complete based on the size field in bytes [2..5] */
                 if (regs->cmd_len >= TPM2_HEADER_SIZE) {
                     UINT32 cmdTotalSz = FwLoadU32BE(regs->cmd_buf + 2);
+                    if (cmdTotalSz < TPM2_HEADER_SIZE ||
+                        cmdTotalSz > FWTPM_TIS_FIFO_SIZE) {
+                        /* Invalid command size, reset FIFO */
+                        regs->cmd_len = 0;
+                        regs->fifo_write_pos = 0;
+                        regs->sts = TisBuildSts(
+                            FWTPM_STS_VALID | FWTPM_STS_COMMAND_READY,
+                            FWTPM_TIS_BURST_COUNT);
+                        break;
+                    }
                     if (regs->cmd_len >= cmdTotalSz) {
                         /* Full command received, clear EXPECT */
                         regs->sts = TisBuildSts(

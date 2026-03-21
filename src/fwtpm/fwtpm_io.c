@@ -261,8 +261,7 @@ static int HandleMssimSignal(FWTPM_CTX* ctx, int clientFd, UINT32 tssCmd)
     printf("fwTPM: Cmd-port signal %u (ack)\n", tssCmd);
 #endif
     netVal = FwTpmSwapU32(0);
-    SocketSend(clientFd, &netVal, 4);
-    return TPM_RC_SUCCESS;
+    return SocketSend(clientFd, &netVal, 4);
 }
 
 /* --- Process and send TPM command response --- */

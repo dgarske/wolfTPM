@@ -5457,9 +5457,13 @@ static TPM_RC FwCmd_RSA_Encrypt(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
         else if (encScheme == TPM_ALG_NULL) {
             /* Raw RSA (no padding) */
+        #ifdef WC_RSA_NO_PADDING
             outSz = wc_RsaPublicEncrypt_ex(message.buffer, message.size,
                 outBuf, (word32)FWTPM_MAX_PUB_BUF, rsaKey, &ctx->rng,
                 WC_RSA_NO_PAD, WC_HASH_TYPE_NONE, 0, NULL, 0);
+        #else
+            rc = TPM_RC_SCHEME;
+        #endif
         }
         else {
             /* RSAES PKCS1 v1.5 */
@@ -5602,9 +5606,13 @@ static TPM_RC FwCmd_RSA_Decrypt(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
         else if (decScheme == TPM_ALG_NULL) {
             /* Raw RSA (no padding) */
+        #ifdef WC_RSA_NO_PADDING
             outSz = wc_RsaPrivateDecrypt_ex(cipherText.buffer, cipherText.size,
                 outBuf, (word32)FWTPM_MAX_PUB_BUF, rsaKey,
                 WC_RSA_NO_PAD, WC_HASH_TYPE_NONE, 0, NULL, 0);
+        #else
+            rc = TPM_RC_SCHEME;
+        #endif
         }
         else {
             /* RSAES PKCS1 v1.5 */
@@ -10964,7 +10972,10 @@ static TPM_RC FwCmd_MakeCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         XMEMCPY(oaepLabel, "IDENTITY", 8);
         oaepLabelSz = 8;
         oaepLabel[oaepLabelSz++] = 0x00;
-        if (objectName.size + oaepLabelSz <= (int)sizeof(oaepLabel)) {
+        if (objectName.size + oaepLabelSz > (int)sizeof(oaepLabel)) {
+            rc = TPM_RC_SIZE;
+        }
+        else {
             XMEMCPY(oaepLabel + oaepLabelSz, objectName.name,
                 objectName.size);
             oaepLabelSz += objectName.size;
@@ -11016,14 +11027,20 @@ static TPM_RC FwCmd_MakeCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_AppendBytes(rsp, encCred, (int)encCredSz);
         /* patch blob size */
         blobSz = rsp->pos - blobStart;
-        savedPos = rsp->pos;
-        rsp->pos = blobSzPos;
-        TPM2_Packet_AppendU16(rsp, (UINT16)blobSz);
-        rsp->pos = savedPos;
-        /* secret = TPM2B_ENCRYPTED_SECRET */
-        TPM2_Packet_AppendU16(rsp, (UINT16)encSeedSz);
-        TPM2_Packet_AppendBytes(rsp, encSeed, encSeedSz);
-        FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
+        if (blobSz < 0 || blobSz > 0xFFFF ||
+            encSeedSz < 0 || encSeedSz > 0xFFFF) {
+            rc = TPM_RC_SIZE;
+        }
+        if (rc == 0) {
+            savedPos = rsp->pos;
+            rsp->pos = blobSzPos;
+            TPM2_Packet_AppendU16(rsp, (UINT16)blobSz);
+            rsp->pos = savedPos;
+            /* secret = TPM2B_ENCRYPTED_SECRET */
+            TPM2_Packet_AppendU16(rsp, (UINT16)encSeedSz);
+            TPM2_Packet_AppendBytes(rsp, encSeed, encSeedSz);
+            FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
+        }
     }
 
     TPM2_ForceZero(seed, sizeof(seed));
@@ -11151,7 +11168,10 @@ static TPM_RC FwCmd_ActivateCredential(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         XMEMCPY(oaepLabel, "IDENTITY", 8);
         oaepLabelSz = 8;
         oaepLabel[oaepLabelSz++] = 0x00;
-        if (objName->size + oaepLabelSz <= (int)sizeof(oaepLabel)) {
+        if (objName->size + oaepLabelSz > (int)sizeof(oaepLabel)) {
+            rc = TPM_RC_SIZE;
+        }
+        else {
             XMEMCPY(oaepLabel + oaepLabelSz, objName->name, objName->size);
             oaepLabelSz += objName->size;
         }
@@ -12293,6 +12313,10 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         int rspParamEnd;
 #endif
         int j;
+        int rngRc;
+        byte rpHash[TPM_MAX_DIGEST_SIZE];
+        int rpHashSz = 0;
+        TPMI_ALG_HASH rpHashAlg = TPM_ALG_SHA256;
 
         /* Read parameterSize from response buffer */
         if (rspHandleEnd + 4 <= rspPkt.pos) {
@@ -12314,9 +12338,14 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 FWTPM_Session* sess = cmdAuths[j].sess;
                 int digestSz = TPM2_GetHashDigestSize(sess->authHash);
                 if (digestSz > 0) {
-                    sess->nonceTPM.size = digestSz;
-                    wc_RNG_GenerateBlock(&ctx->rng, sess->nonceTPM.buffer,
-                        digestSz);
+                    rngRc = wc_RNG_GenerateBlock(&ctx->rng,
+                        sess->nonceTPM.buffer, digestSz);
+                    if (rngRc == 0) {
+                        sess->nonceTPM.size = digestSz;
+                    }
+                    else {
+                        sess->nonceTPM.size = 0;
+                    }
                 }
             }
         }
@@ -12340,8 +12369,6 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
 #endif /* !FWTPM_NO_PARAM_ENC */
 
         /* Compute rpHash on (possibly encrypted) response parameters */
-        byte rpHash[TPM_MAX_DIGEST_SIZE];
-        int rpHashSz = 0;
         {
             const byte* rpBytes = NULL;
             int rpBytesSz = 0;
@@ -12350,7 +12377,6 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 rpBytesSz = (int)rspParamSzVal;
             }
             /* Use first session's hashAlg for rpHash (or SHA-256 default) */
-            TPMI_ALG_HASH rpHashAlg = TPM_ALG_SHA256;
             for (j = 0; j < cmdAuthCnt; j++) {
                 if (cmdAuths[j].sess != NULL) {
                     rpHashAlg = cmdAuths[j].sess->authHash;

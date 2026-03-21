@@ -25,13 +25,13 @@
 #include <string.h>
 
 /* Global secure fwTPM context pointer (set by main.c) */
-extern FWTPM_CTX* g_fwtpmCtx;
+extern volatile FWTPM_CTX* g_fwtpmCtx;
 
 FWTPM_NSC_ENTRY
 int FWTPM_NSC_ExecuteCommand(const uint8_t* cmdBuf, uint32_t cmdSz,
                               uint8_t* rspBuf, uint32_t* rspSz)
 {
-    FWTPM_CTX* ctx = g_fwtpmCtx;
+    FWTPM_CTX* ctx = (FWTPM_CTX*)g_fwtpmCtx;
     int rc;
 
     if (ctx == NULL || cmdBuf == NULL || rspBuf == NULL || rspSz == NULL) {

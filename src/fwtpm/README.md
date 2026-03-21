@@ -11,11 +11,11 @@ SPI/I2C for bare-metal integration. Implements 103 of 113 TPM 2.0 v1.38 commands
 
 ## Building
 
-wolfSSL must be built with `--enable-keygen`:
+wolfSSL must be built with `--enable-keygen` and `WC_RSA_NO_PADDING`:
 
 ```bash
 cd wolfssl
-./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen
+./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen CFLAGS="-DWC_RSA_NO_PADDING"
 make && make install
 ```
 

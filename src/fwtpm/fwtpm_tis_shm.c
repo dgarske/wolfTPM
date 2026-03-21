@@ -148,7 +148,9 @@ static int TisShmWaitRequest(void* ctx)
 static int TisShmSignalResponse(void* ctx)
 {
     FWTPM_TIS_SHM_CTX* shm = (FWTPM_TIS_SHM_CTX*)ctx;
-    sem_post(shm->semRsp);
+    if (sem_post(shm->semRsp) != 0) {
+        return TPM_RC_FAILURE;
+    }
     return 0;
 }
 

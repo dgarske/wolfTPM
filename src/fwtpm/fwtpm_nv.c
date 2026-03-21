@@ -104,7 +104,10 @@ static int FwNvFileWrite(void* ctx, word32 offset, const byte* buf,
         byte zero = 0;
         long i;
         for (i = fileSize; i < (long)offset; i++) {
-            fwrite(&zero, 1, 1, f);
+            if (fwrite(&zero, 1, 1, f) != 1) {
+                fclose(f);
+                return TPM_RC_FAILURE;
+            }
         }
     }
 
@@ -859,6 +862,9 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
                 if (slot >= 0) {
                     XMEMCPY(&ctx->nvIndices[slot], &nv,
                         sizeof(FWTPM_NvIndex));
+                }
+                else {
+                    WOLFSSL_MSG("fwTPM NV: no free NV slot, entry dropped");
                 }
             }
             break;

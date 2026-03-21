@@ -84,11 +84,15 @@ int FwComputeUniqueHash(TPMI_ALG_HASH nameAlg, const byte* keyData,
         FWTPM_DECLARE_VAR(hCtx, wc_HashAlg);
         FWTPM_ALLOC_VAR(hCtx, wc_HashAlg);
         if (rc == 0 && wc_HashInit(hCtx, wcHash) == 0) {
-            wc_HashUpdate(hCtx, wcHash, keyData, (word32)keyDataSz);
-            wc_HashFinal(hCtx, wcHash, outBuf);
+            rc = wc_HashUpdate(hCtx, wcHash, keyData, (word32)keyDataSz);
+            if (rc == 0) {
+                rc = wc_HashFinal(hCtx, wcHash, outBuf);
+            }
             wc_HashFree(hCtx, wcHash);
-            FWTPM_FREE_VAR(hCtx);
-            return hSz;
+            if (rc == 0) {
+                FWTPM_FREE_VAR(hCtx);
+                return hSz;
+            }
         }
         FWTPM_FREE_VAR(hCtx);
     }
@@ -263,10 +267,14 @@ int FwAppendCreationHashAndTicket(FWTPM_CTX* ctx, TPM2_Packet* rsp,
     byte ticketData[TPM_MAX_DIGEST_SIZE + sizeof(TPM2B_NAME)];
     int chSz = TPM2_GetHashDigestSize(nameAlg);
     int ticketDataSz = 0;
+    int hashRc = 0;
 
     if (chSz > 0) {
-        wc_Hash(FwGetWcHashType(nameAlg),
+        hashRc = wc_Hash(FwGetWcHashType(nameAlg),
             rsp->buf + cdStart, cdSize, creationHash, chSz);
+        if (hashRc != 0) {
+            chSz = 0;
+        }
     }
     TPM2_Packet_AppendU16(rsp, (UINT16)chSz);
     if (chSz > 0) {

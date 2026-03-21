@@ -58,7 +58,8 @@ check_wolfssl_options() {
     [ -f "$opts_file" ] || return 1
     grep -q "HAVE_PK_CALLBACKS" "$opts_file" && \
     grep -q "WOLFSSL_KEY_GEN" "$opts_file" && \
-    grep -q "WOLFSSL_PUBLIC_MP" "$opts_file"
+    grep -q "WOLFSSL_PUBLIC_MP" "$opts_file" && \
+    grep -q "WC_RSA_NO_PADDING" "$opts_file"
 }
 
 ensure_wolfssl() {
@@ -103,6 +104,7 @@ ensure_wolfssl() {
         ./autogen.sh > /dev/null 2>&1 && \
         ./configure \
             --enable-wolftpm --enable-pkcallbacks --enable-keygen \
+            CFLAGS="-DWC_RSA_NO_PADDING" \
             > /tmp/wolfssl-fwtpm-configure.log 2>&1 && \
         make -j"$(nproc)" > /tmp/wolfssl-fwtpm-build.log 2>&1 && \
         sudo make install > /tmp/wolfssl-fwtpm-install.log 2>&1 && \

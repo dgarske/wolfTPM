@@ -191,9 +191,11 @@ jobs:
           CONFIGURE_ARGS="${{ matrix.wolfssl_config }}"
           EXTRA_CFLAGS="${{ matrix.extra_cflags }}"
           EXTRA_LDFLAGS="${{ matrix.extra_ldflags }}"
+          WOLFSSL_CFLAGS="-DWC_RSA_NO_PADDING"
           if [ -n "$EXTRA_CFLAGS" ]; then
-            CONFIGURE_ARGS="$CONFIGURE_ARGS CFLAGS=\"$EXTRA_CFLAGS\""
+            WOLFSSL_CFLAGS="$WOLFSSL_CFLAGS $EXTRA_CFLAGS"
           fi
+          CONFIGURE_ARGS="$CONFIGURE_ARGS CFLAGS=\"$WOLFSSL_CFLAGS\""
           if [ -n "$EXTRA_LDFLAGS" ]; then
             CONFIGURE_ARGS="$CONFIGURE_ARGS LDFLAGS=\"$EXTRA_LDFLAGS\""
           fi
@@ -355,13 +357,15 @@ jobs:
           ./autogen.sh
           ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen
           make
-          sudo make install
-          sudo ldconfig
+          make install
+          ldconfig
 
       - name: Copy wolfSSL to /tmp/wolfssl-fwtpm
         run: cp -a wolfssl /tmp/wolfssl-fwtpm
 
       - name: Run fwTPM emulator test (non-TZ)
+        env:
+          WOLFSSL_DIR: /tmp/wolfssl-fwtpm
         run: scripts/fwtpm_emu_test.sh
 
       - name: Upload failure logs
