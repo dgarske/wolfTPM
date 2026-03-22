@@ -3100,7 +3100,7 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         cmd->pos += outsideInfoSize;
     }
 
-    /* Skip creationPCR */
+    /* Parse creationPCR (TPML_PCR_SELECTION) - skip */
     if (rc == 0) {
         if (cmd->pos + 4 > cmdSize) {
             rc = TPM_RC_COMMAND_SIZE;
@@ -3108,9 +3108,17 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         TPM2_Packet_ParseU32(cmd, &creationPcrCount);
-        for (s = 0; s < creationPcrCount; s++) {
+        for (s = 0; s < creationPcrCount && rc == 0; s++) {
+            if (cmd->pos + 3 > cmdSize) {
+                rc = TPM_RC_COMMAND_SIZE;
+                break;
+            }
             cmd->pos += 2; /* hashAlg */
             TPM2_Packet_ParseU8(cmd, &selectSize);
+            if (cmd->pos + selectSize > cmdSize) {
+                rc = TPM_RC_COMMAND_SIZE;
+                break;
+            }
             cmd->pos += selectSize;
         }
     }
