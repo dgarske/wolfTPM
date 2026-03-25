@@ -49,7 +49,9 @@
 /* --- Small utility helpers --- */
 
 enum wc_HashType FwGetWcHashType(UINT16 hashAlg);
+#ifndef NO_RSA
 int FwGetMgfType(UINT16 hashAlg);
+#endif
 
 int FwComputeUniqueHash(TPMI_ALG_HASH nameAlg, const byte* keyData,
     int keyDataSz, byte* outBuf);

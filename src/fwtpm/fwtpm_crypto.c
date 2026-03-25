@@ -71,6 +71,7 @@ enum wc_HashType FwGetWcHashType(UINT16 hashAlg)
     return (enum wc_HashType)ret;
 }
 
+#ifndef NO_RSA
 int FwGetMgfType(UINT16 hashAlg)
 {
     switch (hashAlg) {
@@ -84,6 +85,7 @@ int FwGetMgfType(UINT16 hashAlg)
         default:             return WC_MGF1SHA256;
     }
 }
+#endif /* !NO_RSA */
 
 /* Compute unique = H(keyData) for KEYEDHASH/SYMCIPHER key types.
  * Stores the hash in outBuf and returns the digest size, or 0 on error. */
