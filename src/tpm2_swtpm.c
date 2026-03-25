@@ -56,6 +56,7 @@
 #include <netdb.h>
 #endif
 #ifdef WOLFTPM_SWTPM_UART
+#include <stdlib.h>
 #include <fcntl.h>
 #include <termios.h>
 #endif

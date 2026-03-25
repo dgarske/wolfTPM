@@ -1125,6 +1125,7 @@ static UINT32 StartSessionHelper(FWTPM_CTX* ctx, UINT8 sessType)
     return GetU32BE(gRsp + TPM2_HEADER_SIZE);
 }
 
+#ifndef FWTPM_NO_POLICY
 /* Helper: send a policy command that takes only sessionHandle */
 static TPM_RC SendPolicyCmd(FWTPM_CTX* ctx, UINT32 cc, UINT32 sessHandle)
 {
@@ -1138,7 +1139,9 @@ static TPM_RC SendPolicyCmd(FWTPM_CTX* ctx, UINT32 cc, UINT32 sessHandle)
     FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
     return GetRspRC(gRsp);
 }
+#endif /* !FWTPM_NO_POLICY */
 
+#ifndef FWTPM_NO_NV
 /* Helper: build NV_DefineSpace command */
 static int BuildNvDefineCmd(byte* buf, UINT32 nvIndex, UINT16 dataSize,
     UINT32 attributes)
@@ -1163,6 +1166,7 @@ static int BuildNvDefineCmd(byte* buf, UINT32 nvIndex, UINT16 dataSize,
     PutU32BE(buf + 2, (UINT32)pos);
     return pos;
 }
+#endif /* !FWTPM_NO_NV */
 
 /* ================================================================== */
 /* Group E: Sessions                                                   */
@@ -1211,6 +1215,7 @@ static void test_fwtpm_start_trial_session(void)
 /* Group F: Policy                                                     */
 /* ================================================================== */
 
+#ifndef FWTPM_NO_POLICY
 static void test_fwtpm_policy_password(void)
 {
     FWTPM_CTX ctx;
@@ -1346,6 +1351,7 @@ static void test_fwtpm_policy_pcr(void)
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tPolicyPCR:\t\t\tPassed\n");
 }
+#endif /* !FWTPM_NO_POLICY */
 
 /* ================================================================== */
 /* Group B: NV Operations                                              */
@@ -1673,6 +1679,7 @@ static void test_fwtpm_change_pps(void)
     printf("Test fwTPM:\tChangePPS:\t\t\tPassed\n");
 }
 
+#ifndef FWTPM_NO_DA
 static void test_fwtpm_da_parameters_and_reset(void)
 {
     FWTPM_CTX ctx;
@@ -1702,6 +1709,7 @@ static void test_fwtpm_da_parameters_and_reset(void)
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tDA Parameters/LockReset:\t\tPassed\n");
 }
+#endif /* !FWTPM_NO_DA */
 
 static void test_fwtpm_read_public(void)
 {
@@ -2010,9 +2018,12 @@ int fwtpm_unit_tests(int argc, char *argv[])
 
     /* Auth */
     test_fwtpm_hierarchy_change_auth();
+#ifndef FWTPM_NO_DA
     test_fwtpm_da_parameters_and_reset();
+#endif
 
     /* Policy */
+#ifndef FWTPM_NO_POLICY
     test_fwtpm_policy_password();
     test_fwtpm_policy_auth_value();
     test_fwtpm_policy_get_digest();
@@ -2020,6 +2031,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_policy_command_code();
     test_fwtpm_policy_locality();
     test_fwtpm_policy_pcr();
+#endif
 
     /* NV operations */
 #ifndef FWTPM_NO_NV

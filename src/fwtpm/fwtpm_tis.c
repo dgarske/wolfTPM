@@ -134,9 +134,10 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
                         localCmd, (int)localCmdLen,
                         regs->rsp_buf, &rspSize, 0 /* locality */);
                     if (procRc != TPM_RC_SUCCESS || rspSize == 0) {
-                        /* Build minimal error response */
-                        regs->rsp_buf[0] = 0x00;
-                        regs->rsp_buf[1] = 0xC4; /* TPM_ST_NO_SESSIONS */
+                        /* Build minimal error response
+                         * TPM_ST_NO_SESSIONS = 0x8001 (big-endian) */
+                        regs->rsp_buf[0] = 0x80;
+                        regs->rsp_buf[1] = 0x01; /* TPM_ST_NO_SESSIONS */
                         regs->rsp_buf[2] = 0x00;
                         regs->rsp_buf[3] = 0x00;
                         regs->rsp_buf[4] = 0x00;

@@ -766,8 +766,13 @@ TPM_RC TPM2_Packet_ParseSensitiveCreate(TPM2_Packet* packet, int maxSize,
     }
     if (rc == 0) {
         TPM2_Packet_ParseU16(packet, &inSensSize);
+        /* Validate outer TPM2B size fits within remaining command */
+        if (inSensSize > 0 &&
+            packet->pos + inSensSize > maxSize) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
         XMEMSET(userAuth, 0, sizeof(*userAuth));
-        if (packet->pos + 2 > maxSize) {
+        if (rc == 0 && packet->pos + 2 > maxSize) {
             rc = TPM_RC_COMMAND_SIZE;
         }
     }

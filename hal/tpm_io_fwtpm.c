@@ -189,9 +189,9 @@ int TPM2_IoCb_FwTPM(TPM2_CTX* ctx, int isRead, word32 addr,
         return TPM_RC_FAILURE;
     }
 
-    /* Clamp size to reg_data buffer */
+    /* Reject transfers larger than the reg_data buffer */
     if (size > (word16)sizeof(shm->reg_data)) {
-        size = (word16)sizeof(shm->reg_data);
+        return BAD_FUNC_ARG;
     }
 
     /* Fill register access request */
