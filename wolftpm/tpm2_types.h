@@ -393,7 +393,7 @@ typedef int64_t  INT64;
 /* On Linux with autodetect, also try /dev/tpm0 kernel driver at runtime */
 #if defined(WOLFTPM_AUTODETECT) && defined(__linux__) && \
     !defined(WOLFTPM_LINUX_DEV) && !defined(WOLFTPM_SWTPM) && \
-    !defined(WOLFTPM_WINAPI)
+    !defined(WOLFTPM_WINAPI) && !defined(WOLFTPM_FWTPM_HAL)
     #define WOLFTPM_LINUX_DEV_AUTODETECT
 #endif
 

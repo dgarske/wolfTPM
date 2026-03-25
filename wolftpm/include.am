@@ -12,8 +12,15 @@ nobase_include_HEADERS+= \
                          wolftpm/tpm2_swtpm.h \
                          wolftpm/tpm2_winapi.h \
                          wolftpm/tpm2_param_enc.h \
+                         wolftpm/tpm2_crypto.h \
                          wolftpm/tpm2_socket.h \
                          wolftpm/tpm2_asn.h \
                          wolftpm/version.h \
                          wolftpm/visibility.h \
-                         wolftpm/options.h
+                         wolftpm/options.h \
+                         wolftpm/fwtpm/fwtpm.h \
+                         wolftpm/fwtpm/fwtpm_io.h \
+                         wolftpm/fwtpm/fwtpm_command.h \
+                         wolftpm/fwtpm/fwtpm_crypto.h \
+                         wolftpm/fwtpm/fwtpm_nv.h \
+                         wolftpm/fwtpm/fwtpm_tis.h

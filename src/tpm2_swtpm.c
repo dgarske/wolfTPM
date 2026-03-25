@@ -55,14 +55,33 @@
 #ifdef HAVE_NETDB_H
 #include <netdb.h>
 #endif
+#ifdef WOLFTPM_SWTPM_UART
+#include <fcntl.h>
+#include <termios.h>
+#endif
 
 #include <wolftpm/tpm2_socket.h>
 
-#ifndef TPM2_SWTPM_HOST
-#define TPM2_SWTPM_HOST         "localhost"
-#endif
-#ifndef TPM2_SWTPM_PORT
-#define TPM2_SWTPM_PORT         2321
+#ifdef WOLFTPM_SWTPM_UART
+    /* UART transport: HOST = device path, PORT = baud rate */
+    #ifndef TPM2_SWTPM_HOST
+        #ifdef __APPLE__
+            #define TPM2_SWTPM_HOST "/dev/cu.usbmodem"
+        #else
+            #define TPM2_SWTPM_HOST "/dev/ttyACM0"
+        #endif
+    #endif
+    #ifndef TPM2_SWTPM_PORT
+        #define TPM2_SWTPM_PORT 115200
+    #endif
+#else
+    /* Socket transport: HOST = hostname, PORT = TCP port */
+    #ifndef TPM2_SWTPM_HOST
+        #define TPM2_SWTPM_HOST "localhost"
+    #endif
+    #ifndef TPM2_SWTPM_PORT
+        #define TPM2_SWTPM_PORT 2321
+    #endif
 #endif
 
 static TPM_RC SwTpmTransmit(TPM2_CTX* ctx, const void* buffer, ssize_t bufSz)
@@ -131,13 +150,98 @@ static TPM_RC SwTpmReceive(TPM2_CTX* ctx, void* buffer, size_t rxSz)
 static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
 {
     TPM_RC rc = TPM_RC_FAILURE;
-    int s;
     int fd = -1;
 
+#ifdef WOLFTPM_SWTPM_UART
+    /* UART transport: open serial device with termios */
+    struct termios tty;
+    speed_t baud;
+    int baudInt;
+
+    if (ctx == NULL) {
+        return BAD_FUNC_ARG;
+    }
+    (void)port;
+
+    /* Allow runtime override via TPM2_SWTPM_HOST env var */
+    {
+        const char* envDev = getenv("TPM2_SWTPM_HOST");
+        if (envDev != NULL && envDev[0] != '\0') {
+            host = envDev;
+        }
+    }
+
+    fd = open(host, O_RDWR | O_NOCTTY);
+    if (fd < 0) {
+    #ifdef DEBUG_WOLFTPM
+        printf("Failed to open UART device %s: %s\n", host, strerror(errno));
+    #endif
+        return TPM_RC_FAILURE;
+    }
+
+    /* Configure serial port: 8N1, raw mode, no flow control */
+    memset(&tty, 0, sizeof(tty));
+    if (tcgetattr(fd, &tty) != 0) {
+        close(fd);
+        return TPM_RC_FAILURE;
+    }
+
+    /* Baud rate from port string or default */
+    baudInt = atoi(port);
+    if (baudInt <= 0) {
+        baudInt = TPM2_SWTPM_PORT;
+    }
+    switch (baudInt) {
+        case 9600:   baud = B9600; break;
+        case 19200:  baud = B19200; break;
+        case 38400:  baud = B38400; break;
+        case 57600:  baud = B57600; break;
+        case 115200: baud = B115200; break;
+        case 230400: baud = B230400; break;
+        case 460800: baud = B460800; break;
+        case 921600: baud = B921600; break;
+        default:     baud = B115200; break;
+    }
+    cfsetospeed(&tty, baud);
+    cfsetispeed(&tty, baud);
+
+    /* 8N1: 8 data bits, no parity, 1 stop bit */
+    tty.c_cflag = (tty.c_cflag & ~CSIZE) | CS8;
+    tty.c_cflag &= ~(PARENB | PARODD | CSTOPB | CRTSCTS);
+    tty.c_cflag |= (CLOCAL | CREAD);
+
+    /* Raw mode: no special input/output processing */
+    tty.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP |
+                      INLCR | IGNCR | ICRNL | IXON | IXOFF | IXANY);
+    tty.c_oflag &= ~OPOST;
+    tty.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+
+    /* Blocking read with timeout.
+     * RSA key generation on embedded targets can take 10+ seconds,
+     * so use a generous timeout. */
+    tty.c_cc[VMIN] = 1;    /* block until at least 1 byte */
+    tty.c_cc[VTIME] = 200; /* 20 second timeout (tenths of seconds) */
+
+    if (tcsetattr(fd, TCSANOW, &tty) != 0) {
+        close(fd);
+        return TPM_RC_FAILURE;
+    }
+
+    /* Flush any stale data */
+    tcflush(fd, TCIOFLUSH);
+
+    ctx->tcpCtx.fd = fd;
+    rc = TPM_RC_SUCCESS;
+
+#ifdef DEBUG_WOLFTPM
+    printf("UART connected: %s @ %d baud\n", host, baudInt);
+#endif
+
+#elif defined(WOLFTPM_ZEPHYR)
     /* Zephyr doesn't support getaddrinfo;
      * so we need to use Zephyr's socket API
      */
-#ifdef WOLFTPM_ZEPHYR
+    int s;
     struct zsock_addrinfo hints;
     struct zsock_addrinfo *result, *rp;
 
@@ -177,6 +281,7 @@ static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
     }
     #endif
 #else /* !WOLFTPM_ZEPHYR */
+    int s;
     struct addrinfo hints;
     struct addrinfo *result, *rp;
 
@@ -240,6 +345,11 @@ static TPM_RC SwTpmDisconnect(TPM2_CTX* ctx)
     }
     #endif
 
+#ifdef WOLFTPM_SWTPM_UART
+    /* UART: keep the port open for the next command.
+     * The SESSION_END tells the server the command sequence is done. */
+    (void)ctx;
+#else
     if (0 != close(ctx->tcpCtx.fd)) {
         rc = TPM_RC_FAILURE;
 
@@ -250,6 +360,7 @@ static TPM_RC SwTpmDisconnect(TPM2_CTX* ctx)
     }
 
     ctx->tcpCtx.fd = -1;
+#endif
 
     return rc;
 }
@@ -270,6 +381,9 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 
     if (ctx->tcpCtx.fd < 0) {
         rc = SwTpmConnect(ctx, TPM2_SWTPM_HOST, XSTRINGIFY(TPM2_SWTPM_PORT));
+    }
+    else {
+        rc = TPM_RC_SUCCESS; /* already connected (e.g. UART persistent fd) */
     }
 
 #ifdef WOLFTPM_DEBUG_VERBOSE

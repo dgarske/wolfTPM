@@ -25,34 +25,87 @@
 
 #include <wolftpm/tpm2_packet.h>
 
-/* convert 16 bit integer to opaque */
-static inline void c16toa(word16 wc_u16, byte* c)
-{
-    c[0] = (wc_u16 >> 8) & 0xff;
-    c[1] =  wc_u16 & 0xff;
-}
-/* convert 32 bit integer to opaque */
-static inline void c32toa(word32 wc_u32, byte* c)
-{
-    c[0] = (wc_u32 >> 24) & 0xff;
-    c[1] = (wc_u32 >> 16) & 0xff;
-    c[2] = (wc_u32 >>  8) & 0xff;
-    c[3] =  wc_u32 & 0xff;
-}
-
 /******************************************************************************/
 /* --- BEGIN TPM Packet Assembly / Parsing -- */
 /******************************************************************************/
+
+/* Big-endian byte-array store helpers */
 void TPM2_Packet_U16ToByteArray(UINT16 val, BYTE* b)
 {
-    if (b)
-        c16toa(val, b);
+    if (b) {
+        b[0] = (byte)(val >> 8);
+        b[1] = (byte)(val);
+    }
 }
 void TPM2_Packet_U32ToByteArray(UINT32 val, BYTE* b)
 {
-    if (b)
-        c32toa(val, b);
+    if (b) {
+        b[0] = (byte)(val >> 24);
+        b[1] = (byte)(val >> 16);
+        b[2] = (byte)(val >> 8);
+        b[3] = (byte)(val);
+    }
 }
+void TPM2_Packet_U64ToByteArray(UINT64 val, BYTE* b)
+{
+    if (b) {
+        b[0] = (byte)(val >> 56);
+        b[1] = (byte)(val >> 48);
+        b[2] = (byte)(val >> 40);
+        b[3] = (byte)(val >> 32);
+        b[4] = (byte)(val >> 24);
+        b[5] = (byte)(val >> 16);
+        b[6] = (byte)(val >> 8);
+        b[7] = (byte)(val);
+    }
+}
+
+/* Big-endian byte-array load helpers */
+UINT16 TPM2_Packet_ByteArrayToU16(const BYTE* b)
+{
+    return (UINT16)(((UINT16)b[0] << 8) | b[1]);
+}
+UINT32 TPM2_Packet_ByteArrayToU32(const BYTE* b)
+{
+    return ((UINT32)b[0] << 24) | ((UINT32)b[1] << 16) |
+           ((UINT32)b[2] << 8)  | b[3];
+}
+UINT64 TPM2_Packet_ByteArrayToU64(const BYTE* b)
+{
+    return ((UINT64)b[0] << 56) | ((UINT64)b[1] << 48) |
+           ((UINT64)b[2] << 40) | ((UINT64)b[3] << 32) |
+           ((UINT64)b[4] << 24) | ((UINT64)b[5] << 16) |
+           ((UINT64)b[6] << 8)  | (UINT64)b[7];
+}
+
+/* Little-endian byte-array helpers (NV storage format, fwTPM only) */
+#ifdef WOLFTPM_FWTPM
+void TPM2_Packet_U16ToByteArrayLE(UINT16 val, BYTE* b)
+{
+    if (b) {
+        b[0] = (byte)(val);
+        b[1] = (byte)(val >> 8);
+    }
+}
+void TPM2_Packet_U32ToByteArrayLE(UINT32 val, BYTE* b)
+{
+    if (b) {
+        b[0] = (byte)(val);
+        b[1] = (byte)(val >> 8);
+        b[2] = (byte)(val >> 16);
+        b[3] = (byte)(val >> 24);
+    }
+}
+UINT16 TPM2_Packet_ByteArrayToU16LE(const BYTE* b)
+{
+    return (UINT16)(b[0] | ((UINT16)b[1] << 8));
+}
+UINT32 TPM2_Packet_ByteArrayToU32LE(const BYTE* b)
+{
+    return (UINT32)(b[0] | ((UINT32)b[1] << 8) |
+           ((UINT32)b[2] << 16) | ((UINT32)b[3] << 24));
+}
+#endif /* WOLFTPM_FWTPM */
 
 UINT16 TPM2_Packet_SwapU16(UINT16 data)
 {
@@ -197,6 +250,29 @@ void TPM2_Packet_ParseBytes(TPM2_Packet* packet, byte* buf, int size)
             }
         }
         packet->pos += size;
+    }
+}
+
+/* Parse a UINT16 size followed by that many bytes, clamping to maxBufSz.
+ * Keeps packet position synchronized by skipping any excess bytes. */
+void TPM2_Packet_ParseU16Buf(TPM2_Packet* packet, UINT16* size, byte* buf,
+    UINT16 maxBufSz)
+{
+    UINT16 wireSize;
+    UINT16 copySz;
+
+    TPM2_Packet_ParseU16(packet, &wireSize);
+    copySz = wireSize;
+    if (copySz > maxBufSz) {
+        copySz = maxBufSz;
+    }
+    if (size) {
+        *size = copySz;
+    }
+    TPM2_Packet_ParseBytes(packet, buf, copySz);
+    /* Skip any remaining bytes to keep packet position synchronized */
+    if (wireSize > copySz) {
+        TPM2_Packet_ParseBytes(packet, NULL, wireSize - copySz);
     }
 }
 
@@ -673,6 +749,77 @@ void TPM2_Packet_AppendSensitiveCreate(TPM2_Packet* packet, TPM2B_SENSITIVE_CREA
     TPM2_Packet_PlaceU16(packet, tmpSz);
 }
 
+/* Parse TPM2B_SENSITIVE_CREATE (userAuth + optional data).
+ * Used by Create, CreateLoaded, CreatePrimary.
+ * If sensData is NULL, the data portion is skipped (CreatePrimary). */
+#ifdef WOLFTPM_FWTPM
+TPM_RC TPM2_Packet_ParseSensitiveCreate(TPM2_Packet* packet, int maxSize,
+    TPM2B_AUTH* userAuth, byte* sensData, int sensDataBufSz,
+    UINT16* sensDataSize)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    UINT16 inSensSize;
+    UINT16 dataSz;
+
+    if (packet->pos + 2 > maxSize) {
+        rc = TPM_RC_COMMAND_SIZE;
+    }
+    if (rc == 0) {
+        TPM2_Packet_ParseU16(packet, &inSensSize);
+        XMEMSET(userAuth, 0, sizeof(*userAuth));
+        if (packet->pos + 2 > maxSize) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
+    }
+    if (rc == 0) {
+        TPM2_Packet_ParseU16(packet, &userAuth->size);
+        if (userAuth->size > sizeof(userAuth->buffer)) {
+            rc = TPM_RC_SIZE;
+        }
+    }
+    if (rc == 0 && userAuth->size > 0) {
+        if (packet->pos + userAuth->size > maxSize) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
+        if (rc == 0) {
+            TPM2_Packet_ParseBytes(packet, userAuth->buffer, userAuth->size);
+        }
+    }
+    /* data (TPM2B_SENSITIVE_DATA) */
+    if (rc == 0) {
+        if (packet->pos + 2 > maxSize) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
+    }
+    if (rc == 0) {
+        TPM2_Packet_ParseU16(packet, &dataSz);
+        if (sensData != NULL) {
+            if (dataSz > (UINT16)sensDataBufSz) {
+                rc = TPM_RC_SIZE;
+            }
+        }
+    }
+    if (rc == 0 && dataSz > 0) {
+        if (packet->pos + dataSz > maxSize) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
+        if (rc == 0) {
+            if (sensData != NULL) {
+                TPM2_Packet_ParseBytes(packet, sensData, dataSz);
+            }
+            else {
+                packet->pos += dataSz; /* skip */
+            }
+        }
+    }
+    if (rc == 0 && sensDataSize != NULL) {
+        *sensDataSize = dataSz;
+    }
+    (void)inSensSize;
+    return rc;
+}
+#endif /* WOLFTPM_FWTPM */
+
 void TPM2_Packet_AppendPublicParms(TPM2_Packet* packet, TPMI_ALG_PUBLIC type,
     TPMU_PUBLIC_PARMS* parameters)
 {
@@ -785,28 +932,31 @@ void TPM2_Packet_ParsePublic(TPM2_Packet* packet, TPM2B_PUBLIC* pub)
         TPM2_Packet_ParseU16(packet, &pub->publicArea.type);
         TPM2_Packet_ParseU16(packet, &pub->publicArea.nameAlg);
         TPM2_Packet_ParseU32(packet, &pub->publicArea.objectAttributes);
-        TPM2_Packet_ParseU16(packet, &pub->publicArea.authPolicy.size);
-        TPM2_Packet_ParseBytes(packet, pub->publicArea.authPolicy.buffer,
-            pub->publicArea.authPolicy.size);
+        TPM2_Packet_ParseU16Buf(packet, &pub->publicArea.authPolicy.size,
+            pub->publicArea.authPolicy.buffer,
+            (UINT16)sizeof(pub->publicArea.authPolicy.buffer));
 
         TPM2_Packet_ParsePublicParms(packet, pub->publicArea.type,
             &pub->publicArea.parameters);
 
         switch (pub->publicArea.type) {
         case TPM_ALG_KEYEDHASH:
-            TPM2_Packet_ParseU16(packet, &pub->publicArea.unique.keyedHash.size);
-            TPM2_Packet_ParseBytes(packet, pub->publicArea.unique.keyedHash.buffer,
-                pub->publicArea.unique.keyedHash.size);
+            TPM2_Packet_ParseU16Buf(packet,
+                &pub->publicArea.unique.keyedHash.size,
+                pub->publicArea.unique.keyedHash.buffer,
+                (UINT16)sizeof(pub->publicArea.unique.keyedHash.buffer));
             break;
         case TPM_ALG_SYMCIPHER:
-            TPM2_Packet_ParseU16(packet, &pub->publicArea.unique.sym.size);
-            TPM2_Packet_ParseBytes(packet, pub->publicArea.unique.sym.buffer,
-                pub->publicArea.unique.sym.size);
+            TPM2_Packet_ParseU16Buf(packet,
+                &pub->publicArea.unique.sym.size,
+                pub->publicArea.unique.sym.buffer,
+                (UINT16)sizeof(pub->publicArea.unique.sym.buffer));
             break;
         case TPM_ALG_RSA:
-            TPM2_Packet_ParseU16(packet, &pub->publicArea.unique.rsa.size);
-            TPM2_Packet_ParseBytes(packet, pub->publicArea.unique.rsa.buffer,
-                pub->publicArea.unique.rsa.size);
+            TPM2_Packet_ParseU16Buf(packet,
+                &pub->publicArea.unique.rsa.size,
+                pub->publicArea.unique.rsa.buffer,
+                (UINT16)sizeof(pub->publicArea.unique.rsa.buffer));
             break;
         case TPM_ALG_ECC:
             TPM2_Packet_ParseEccPoint(packet, &pub->publicArea.unique.ecc);
@@ -939,13 +1089,13 @@ void TPM2_Packet_ParseAttest(TPM2_Packet* packet, TPMS_ATTEST* out)
 
     TPM2_Packet_ParseU16(packet, &out->type);
 
-    TPM2_Packet_ParseU16(packet, &out->qualifiedSigner.size);
-    TPM2_Packet_ParseBytes(packet, out->qualifiedSigner.name,
-        out->qualifiedSigner.size);
+    TPM2_Packet_ParseU16Buf(packet, &out->qualifiedSigner.size,
+        out->qualifiedSigner.name,
+        (UINT16)sizeof(out->qualifiedSigner.name));
 
-    TPM2_Packet_ParseU16(packet, &out->extraData.size);
-    TPM2_Packet_ParseBytes(packet, out->extraData.buffer,
-        out->extraData.size);
+    TPM2_Packet_ParseU16Buf(packet, &out->extraData.size,
+        out->extraData.buffer,
+        (UINT16)sizeof(out->extraData.buffer));
 
     TPM2_Packet_ParseU64(packet, &out->clockInfo.clock);
     TPM2_Packet_ParseU32(packet, &out->clockInfo.resetCount);
@@ -956,42 +1106,50 @@ void TPM2_Packet_ParseAttest(TPM2_Packet* packet, TPMS_ATTEST* out)
 
     switch (out->type) {
         case TPM_ST_ATTEST_CERTIFY:
-            TPM2_Packet_ParseU16(packet, &out->attested.certify.name.size);
-            TPM2_Packet_ParseBytes(packet, out->attested.certify.name.name,
-                out->attested.certify.name.size);
-            TPM2_Packet_ParseU16(packet, &out->attested.certify.qualifiedName.size);
-            TPM2_Packet_ParseBytes(packet, out->attested.certify.qualifiedName.name,
-                out->attested.certify.qualifiedName.size);
+            TPM2_Packet_ParseU16Buf(packet,
+                &out->attested.certify.name.size,
+                out->attested.certify.name.name,
+                (UINT16)sizeof(out->attested.certify.name.name));
+            TPM2_Packet_ParseU16Buf(packet,
+                &out->attested.certify.qualifiedName.size,
+                out->attested.certify.qualifiedName.name,
+                (UINT16)sizeof(out->attested.certify.qualifiedName.name));
             break;
         case TPM_ST_ATTEST_CREATION:
-            TPM2_Packet_ParseU16(packet, &out->attested.creation.objectName.size);
-            TPM2_Packet_ParseBytes(packet, out->attested.creation.objectName.name,
-                out->attested.creation.objectName.size);
-            TPM2_Packet_ParseU16(packet, &out->attested.creation.creationHash.size);
-            TPM2_Packet_ParseBytes(packet, out->attested.creation.creationHash.buffer,
-                out->attested.creation.creationHash.size);
+            TPM2_Packet_ParseU16Buf(packet,
+                &out->attested.creation.objectName.size,
+                out->attested.creation.objectName.name,
+                (UINT16)sizeof(out->attested.creation.objectName.name));
+            TPM2_Packet_ParseU16Buf(packet,
+                &out->attested.creation.creationHash.size,
+                out->attested.creation.creationHash.buffer,
+                (UINT16)sizeof(out->attested.creation.creationHash.buffer));
             break;
         case TPM_ST_ATTEST_QUOTE:
             TPM2_Packet_ParsePCR(packet, &out->attested.quote.pcrSelect);
-            TPM2_Packet_ParseU16(packet, &out->attested.quote.pcrDigest.size);
-            TPM2_Packet_ParseBytes(packet, out->attested.quote.pcrDigest.buffer,
-                out->attested.quote.pcrDigest.size);
+            TPM2_Packet_ParseU16Buf(packet,
+                &out->attested.quote.pcrDigest.size,
+                out->attested.quote.pcrDigest.buffer,
+                (UINT16)sizeof(out->attested.quote.pcrDigest.buffer));
             break;
         case TPM_ST_ATTEST_COMMAND_AUDIT:
             TPM2_Packet_ParseU64(packet, &out->attested.commandAudit.auditCounter);
             TPM2_Packet_ParseU16(packet, &out->attested.commandAudit.digestAlg);
-            TPM2_Packet_ParseU16(packet, &out->attested.commandAudit.auditDigest.size);
-            TPM2_Packet_ParseBytes(packet, out->attested.commandAudit.auditDigest.buffer,
-                out->attested.commandAudit.auditDigest.size);
-            TPM2_Packet_ParseU16(packet, &out->attested.commandAudit.commandDigest.size);
-            TPM2_Packet_ParseBytes(packet, out->attested.commandAudit.commandDigest.buffer,
-                out->attested.commandAudit.commandDigest.size);
+            TPM2_Packet_ParseU16Buf(packet,
+                &out->attested.commandAudit.auditDigest.size,
+                out->attested.commandAudit.auditDigest.buffer,
+                (UINT16)sizeof(out->attested.commandAudit.auditDigest.buffer));
+            TPM2_Packet_ParseU16Buf(packet,
+                &out->attested.commandAudit.commandDigest.size,
+                out->attested.commandAudit.commandDigest.buffer,
+                (UINT16)sizeof(out->attested.commandAudit.commandDigest.buffer));
             break;
         case TPM_ST_ATTEST_SESSION_AUDIT:
             TPM2_Packet_ParseU8(packet, &out->attested.sessionAudit.exclusiveSession);
-            TPM2_Packet_ParseU16(packet, &out->attested.sessionAudit.sessionDigest.size);
-            TPM2_Packet_ParseBytes(packet, out->attested.sessionAudit.sessionDigest.buffer,
-                out->attested.sessionAudit.sessionDigest.size);
+            TPM2_Packet_ParseU16Buf(packet,
+                &out->attested.sessionAudit.sessionDigest.size,
+                out->attested.sessionAudit.sessionDigest.buffer,
+                (UINT16)sizeof(out->attested.sessionAudit.sessionDigest.buffer));
             break;
         case TPM_ST_ATTEST_TIME:
             TPM2_Packet_ParseU64(packet, &out->attested.time.time.time);
@@ -1002,13 +1160,15 @@ void TPM2_Packet_ParseAttest(TPM2_Packet* packet, TPMS_ATTEST* out)
             TPM2_Packet_ParseU64(packet, &out->attested.time.firmwareVersion);
             break;
         case TPM_ST_ATTEST_NV:
-            TPM2_Packet_ParseU16(packet, &out->attested.nv.indexName.size);
-            TPM2_Packet_ParseBytes(packet, out->attested.nv.indexName.name,
-                out->attested.nv.indexName.size);
+            TPM2_Packet_ParseU16Buf(packet,
+                &out->attested.nv.indexName.size,
+                out->attested.nv.indexName.name,
+                (UINT16)sizeof(out->attested.nv.indexName.name));
             TPM2_Packet_ParseU16(packet, &out->attested.nv.offset);
-            TPM2_Packet_ParseU16(packet, &out->attested.nv.nvContents.size);
-            TPM2_Packet_ParseBytes(packet, out->attested.nv.nvContents.buffer,
-                out->attested.nv.nvContents.size);
+            TPM2_Packet_ParseU16Buf(packet,
+                &out->attested.nv.nvContents.size,
+                out->attested.nv.nvContents.buffer,
+                (UINT16)sizeof(out->attested.nv.nvContents.buffer));
             break;
         default:
             /* unknown attestation type */

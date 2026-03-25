@@ -25,10 +25,16 @@ fi
 if [ -z "$WOLFCRYPT_RSA" ]; then
     WOLFCRYPT_RSA=1
 fi
-
 rm -f run.out
 touch run.out
 
+# Clean stale key blobs and certs from prior runs.
+# These depend on TPM NV state (SRK seed), so they're invalid after NV wipe.
+rm -f keyblob.bin rsa_test_blob.raw ecc_test_blob.raw
+rm -f ./certs/tpm-rsa-cert.pem ./certs/tpm-ecc-cert.pem
+rm -f ./certs/tpm-rsa-cert.csr ./certs/tpm-ecc-cert.csr
+rm -f ./certs/server-rsa-cert.pem ./certs/server-ecc-cert.pem
+rm -f ./certs/client-rsa-cert.pem ./certs/client-ecc-cert.pem
 
 # Create Primary Tests
 echo -e "Create Primary Tests"
@@ -646,7 +652,7 @@ if [ $WOLFCRYPT_ENABLE -eq 1 ] && [ $WOLFCRYPT_DEFAULT -eq 0 ] && [ $NO_FILESYST
     RESULT=$?
     [ $RESULT -ne 0 ] && echo -e "secure rot write ecc384 read! $RESULT" && exit 1
 
-    # Test expected failure case
+    # Test expected failure case - read without auth should fail
     ./examples/boot/secure_rot -nvindex=0x1400201 >> $TPMPWD/run.out 2>&1
     RESULT=$?
     [ $RESULT -eq 0 ] && echo -e "secure rot write ecc384 read no auth! $RESULT" && exit 1
