@@ -226,7 +226,7 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
     int rc;
     WOLFTPM2_DEV dev;
     WOLFTPM2_CAPS caps;
-#ifndef WOLFTPM2_NO_WOLFCRYPT
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_SHA384)
     /* Invalid manifest size (not 177 or 2697) for testing auto-detection */
     uint8_t dummy_manifest[10] = {0};
 #endif
@@ -265,11 +265,11 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
     rc = wolfTPM2_FirmwareUpgradeRecover(NULL, NULL, 0, NULL, NULL);
     AssertIntNE(rc, 0);
 
-#ifndef WOLFTPM2_NO_WOLFCRYPT
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_SHA384)
     /* wolfTPM2_FirmwareUpgrade - NULL dev */
     rc = wolfTPM2_FirmwareUpgrade(NULL, NULL, 0, NULL, NULL);
     AssertIntNE(rc, 0);
-#endif /* !WOLFTPM2_NO_WOLFCRYPT */
+#endif /* !WOLFTPM2_NO_WOLFCRYPT && WOLFSSL_SHA384 */
 
     /* ===== Test NULL/invalid parameter combinations ===== */
 
@@ -289,7 +289,7 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
      * just verify it doesn't crash */
     (void)rc;
 
-#ifndef WOLFTPM2_NO_WOLFCRYPT
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_SHA384)
     /* wolfTPM2_FirmwareUpgrade - valid dev, NULL manifest */
     rc = wolfTPM2_FirmwareUpgrade(&dev, NULL, 0, NULL, NULL);
     AssertIntNE(rc, 0);
@@ -309,7 +309,7 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
             dummy_manifest, sizeof(dummy_manifest), NULL, NULL);
         AssertIntEQ(rc, BAD_FUNC_ARG);
     }
-#endif /* !WOLFTPM2_NO_WOLFCRYPT */
+#endif /* !WOLFTPM2_NO_WOLFCRYPT && WOLFSSL_SHA384 */
 
     wolfTPM2_Cleanup(&dev);
 

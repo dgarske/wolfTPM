@@ -163,8 +163,10 @@ static int FwGetPcrBankIndex(UINT16 hashAlg)
     switch (hashAlg) {
         case TPM_ALG_SHA256:
             return FWTPM_PCR_BANK_SHA256;
+    #ifdef WOLFSSL_SHA384
         case TPM_ALG_SHA384:
             return FWTPM_PCR_BANK_SHA384;
+    #endif
         default:
             return -1;
     }
@@ -870,7 +872,9 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 { TPM_ALG_RSA,     0x0009 },
             #endif
                 { TPM_ALG_SHA256,  0x0004 },
+            #ifdef WOLFSSL_SHA384
                 { TPM_ALG_SHA384,  0x0004 },
+            #endif
                 { TPM_ALG_HMAC,    0x0044 },
             #ifndef NO_AES
                 { TPM_ALG_AES,     0x0060 },
@@ -1029,7 +1033,11 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 { TPM_PT_PCR_COUNT,         IMPLEMENTATION_PCR },
                 { TPM_PT_MAX_COMMAND_SIZE,  FWTPM_MAX_COMMAND_SIZE },
                 { TPM_PT_MAX_RESPONSE_SIZE, FWTPM_MAX_COMMAND_SIZE },
+            #ifdef WOLFSSL_SHA384
                 { TPM_PT_MAX_DIGEST,        TPM_SHA384_DIGEST_SIZE },
+            #else
+                { TPM_PT_MAX_DIGEST,        TPM_SHA256_DIGEST_SIZE },
+            #endif
                 { TPM_PT_TOTAL_COMMANDS,    40 },
                 { TPM_PT_MODES,             0 },
                 { TPM_PT_HR_LOADED,         0 },
@@ -1090,11 +1098,13 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             TPM2_Packet_AppendU8(rsp, 0xFF);
             TPM2_Packet_AppendU8(rsp, 0xFF);
             TPM2_Packet_AppendU8(rsp, 0xFF);
+        #ifdef WOLFSSL_SHA384
             TPM2_Packet_AppendU16(rsp, TPM_ALG_SHA384);
             TPM2_Packet_AppendU8(rsp, PCR_SELECT_MAX);
             TPM2_Packet_AppendU8(rsp, 0xFF);
             TPM2_Packet_AppendU8(rsp, 0xFF);
             TPM2_Packet_AppendU8(rsp, 0xFF);
+        #endif
             break;
         }
 
@@ -1193,7 +1203,9 @@ static TPM_RC FwCmd_TestParms(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             case TPM_ALG_SYMCIPHER:
             case TPM_ALG_AES:
             case TPM_ALG_SHA256:
+        #ifdef WOLFSSL_SHA384
             case TPM_ALG_SHA384:
+        #endif
             case TPM_ALG_HMAC:
             case TPM_ALG_NULL:
                 /* Supported - skip remaining type-specific params */
@@ -1538,6 +1550,7 @@ static TPM_RC FwCmd_PCR_Event(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             }
         }
 
+    #ifdef WOLFSSL_SHA384
         /* SHA-384 bank */
         if (rc == 0) {
             bankAlgs[1] = TPM_ALG_SHA384;
@@ -1568,6 +1581,7 @@ static TPM_RC FwCmd_PCR_Event(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                 }
             }
         }
+    #endif
     }
 
     if (rc == 0) {

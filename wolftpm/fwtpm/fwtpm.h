@@ -156,10 +156,14 @@
 #define FWTPM_MAX_ATTEST_BUF   1024  /* Attestation info marshaling */
 #endif
 
-/* PCR banks: 0=SHA-256, 1=SHA-384 */
-#define FWTPM_PCR_BANKS        2
+/* PCR banks: 0=SHA-256, 1=SHA-384 (if available) */
 #define FWTPM_PCR_BANK_SHA256  0
+#ifdef WOLFSSL_SHA384
+#define FWTPM_PCR_BANKS        2
 #define FWTPM_PCR_BANK_SHA384  1
+#else
+#define FWTPM_PCR_BANKS        1
+#endif
 
 /* Max digest size we track (SHA-384 = 48 bytes) */
 #ifndef TPM_MAX_DIGEST_SIZE

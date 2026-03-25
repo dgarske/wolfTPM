@@ -2044,7 +2044,9 @@ int FwGetRsaHashOid(UINT16 hashAlg)
 {
     switch (hashAlg) {
         case TPM_ALG_SHA256: return WC_HASH_TYPE_SHA256;
+    #ifdef WOLFSSL_SHA384
         case TPM_ALG_SHA384: return WC_HASH_TYPE_SHA384;
+    #endif
         default:             return WC_HASH_TYPE_NONE;
     }
 }

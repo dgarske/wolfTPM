@@ -4188,7 +4188,7 @@ WOLFTPM_API int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev,
     uint8_t* manifest, uint32_t manifest_sz,
     wolfTPM2FwDataCb cb, void* cb_ctx);
 
-#ifndef WOLFTPM2_NO_WOLFCRYPT
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_SHA384)
 /*!
     \ingroup wolfTPM2_Wrappers
     \brief Perform TPM firmware upgrade
@@ -4213,7 +4213,7 @@ WOLFTPM_API int wolfTPM2_FirmwareUpgradeHash(WOLFTPM2_DEV* dev,
 WOLFTPM_API int wolfTPM2_FirmwareUpgrade(WOLFTPM2_DEV* dev,
     uint8_t* manifest, uint32_t manifest_sz,
     wolfTPM2FwDataCb cb, void* cb_ctx);
-#endif /* !WOLFTPM2_NO_WOLFCRYPT */
+#endif /* !WOLFTPM2_NO_WOLFCRYPT && WOLFSSL_SHA384 */
 
 /*!
     \ingroup wolfTPM2_Wrappers

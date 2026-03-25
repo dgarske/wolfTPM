@@ -22,7 +22,17 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WOLFTPM_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-PORT_DIR="$WOLFTPM_DIR/src/fwtpm/ports/stm32"
+
+# STM32 port lives in wolftpm-examples repo
+if [ -n "$WOLFTPM_EXAMPLES_DIR" ]; then
+    PORT_DIR="$WOLFTPM_EXAMPLES_DIR/STM32/fwtpm-stm32h5"
+elif [ -d "$WOLFTPM_DIR/../wolftpm-examples/STM32/fwtpm-stm32h5" ]; then
+    PORT_DIR="$(cd "$WOLFTPM_DIR/../wolftpm-examples/STM32/fwtpm-stm32h5" && pwd)"
+else
+    echo "ERROR: wolftpm-examples not found. Set WOLFTPM_EXAMPLES_DIR or clone"
+    echo "       https://github.com/wolfSSL/wolftpm-examples alongside wolftpm."
+    exit 1
+fi
 
 DO_BUILD=1
 TZEN=0
@@ -62,7 +72,7 @@ echo "  TZEN: $TZEN"
 if [ $DO_BUILD -eq 1 ]; then
     echo "Building fwTPM STM32 (TZEN=$TZEN, SELFTEST=1)..."
     make -C "$PORT_DIR" clean > /dev/null 2>&1
-    if ! make -C "$PORT_DIR" ${WOLFSSL_DIR:+WOLFSSL_DIR="$WOLFSSL_DIR"} TZEN=$TZEN SELFTEST=1 > /tmp/fwtpm_emu_build.log 2>&1; then
+    if ! make -C "$PORT_DIR" WOLFTPM_DIR="$WOLFTPM_DIR" ${WOLFSSL_DIR:+WOLFSSL_DIR="$WOLFSSL_DIR"} TZEN=$TZEN SELFTEST=1 > /tmp/fwtpm_emu_build.log 2>&1; then
         echo "FAIL: Build failed"
         tail -20 /tmp/fwtpm_emu_build.log
         exit 1

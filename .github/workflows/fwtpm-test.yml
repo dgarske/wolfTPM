@@ -44,6 +44,13 @@ jobs:
             server_args: ""
             build_only: true
 
+          # Build-only: fwTPM with SHA-384 disabled
+          - name: fwtpm-no-sha384
+            wolftpm_config: --enable-fwtpm --enable-swtpm
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen --disable-sha384
+            server_args: ""
+            build_only: true
+
           # Build-only: fwTPM server only (no client library)
           - name: fwtpm-only
             wolftpm_config: --enable-fwtpm-only --enable-swtpm
@@ -387,6 +394,13 @@ jobs:
           repository: wolfssl/wolfssl
           path: wolfssl
 
+      - name: Checkout wolftpm-examples
+        uses: actions/checkout@master
+        with:
+          repository: wolfssl/wolftpm-examples
+          ref: fwtpm_stm32h5
+          path: wolftpm-examples
+
       - name: Install build dependencies
         run: |
           apt-get update -qq
@@ -422,6 +436,7 @@ jobs:
       - name: Run fwTPM emulator test (non-TZ)
         env:
           WOLFSSL_DIR: /tmp/wolfssl-fwtpm
+          WOLFTPM_EXAMPLES_DIR: ${{ github.workspace }}/wolftpm-examples
         run: scripts/fwtpm_emu_test.sh
 
       - name: Upload failure logs
