@@ -416,10 +416,9 @@ static int HandleCommandConnection(FWTPM_CTX* ctx, int clientFd)
     }
     cmdSize = FwTpmSwapU32(netVal);
 
-    if (cmdSize > FWTPM_MAX_COMMAND_SIZE) {
+    if (cmdSize < TPM2_HEADER_SIZE || cmdSize > FWTPM_MAX_COMMAND_SIZE) {
     #ifdef DEBUG_WOLFTPM
-        printf("fwTPM: Command too large: %d > %d\n", cmdSize,
-            FWTPM_MAX_COMMAND_SIZE);
+        printf("fwTPM: Command size invalid: %u\n", cmdSize);
     #endif
         return TPM_RC_COMMAND_SIZE;
     }

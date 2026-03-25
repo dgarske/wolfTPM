@@ -2432,6 +2432,7 @@ static TPM_RC FwCmd_CreatePrimary(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     TPM2_ForceZero(&userAuth, sizeof(userAuth));
+    TPM2_ForceZero(sensData, sizeof(sensData));
     return rc;
 }
 
@@ -12268,9 +12269,11 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
 
             if (authAreaSz > 0) {
                 int authEnd;
-                /* Clamp authAreaSz to prevent integer overflow */
+                /* Reject if authAreaSz exceeds remaining command bytes */
                 if (authAreaSz > (UINT32)(cmdSize - cmdPkt.pos)) {
-                    authAreaSz = (UINT32)(cmdSize - cmdPkt.pos);
+                    *rspSize = FwBuildErrorResponse(rspBuf,
+                        TPM_ST_NO_SESSIONS, TPM_RC_AUTHSIZE);
+                    return TPM_RC_SUCCESS;
                 }
                 authEnd = cmdPkt.pos + (int)authAreaSz;
 
@@ -12448,21 +12451,33 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
 
             FwLookupEntityAuth(ctx, entityH, &authVal, &authValSz);
 
-            /* Compare password with authValue. Per TCG reference
-             * implementation (CheckPWAuthSession in SessionProcess.c),
-             * strip trailing zeros from both before comparing. This
-             * handles authValues padded to nameAlg digest size. */
-            pwSz = (int)cmdAuths[pj].passwordSize;
-            avSz = authValSz;
-            /* Strip trailing zeros from password */
-              while (pwSz > 0 && cmdAuths[pj].password[pwSz - 1] == 0)
-                  pwSz--;
-              /* Strip trailing zeros from stored authValue */
-              while (avSz > 0 && authVal[avSz - 1] == 0)
-                  avSz--;
-              if (pwSz != avSz ||
-                  (avSz > 0 &&
-                   TPM2_ConstantCompare(cmdAuths[pj].password, authVal, avSz) != 0)) {
+            /* Compare password with authValue in constant time.
+             * Per TCG reference implementation, trailing zeros are
+             * insignificant (handles authValues padded to nameAlg
+             * digest size). We compare up to the max of both sizes
+             * and verify trailing bytes are zero, all in constant
+             * time to avoid leaking the effective auth length. */
+            {
+              int maxSz, minSz, authFail;
+              volatile byte diff = 0;
+              int ci;
+              pwSz = (int)cmdAuths[pj].passwordSize;
+              avSz = authValSz;
+              maxSz = (pwSz > avSz) ? pwSz : avSz;
+              minSz = (pwSz < avSz) ? pwSz : avSz;
+              /* Compare overlapping portion */
+              for (ci = 0; ci < minSz; ci++) {
+                  diff |= cmdAuths[pj].password[ci] ^ authVal[ci];
+              }
+              /* Verify trailing bytes of the longer buffer are zero */
+              for (ci = minSz; ci < maxSz; ci++) {
+                  if (ci < pwSz)
+                      diff |= cmdAuths[pj].password[ci];
+                  if (ci < avSz)
+                      diff |= authVal[ci];
+              }
+              authFail = ((int)diff != 0);
+              if (authFail) {
               #ifdef DEBUG_WOLFTPM
                   printf("fwTPM: Password auth failed for handle "
                       "0x%x (CC=0x%x)\n", entityH, cmdCode);
@@ -12478,7 +12493,8 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                   *rspSize = FwBuildErrorResponse(rspBuf,
                       TPM_ST_NO_SESSIONS, TPM_RC_AUTH_FAIL);
                   return TPM_RC_SUCCESS;
-            }
+              }
+            } /* end constant-time password comparison block */
         }
     }
 

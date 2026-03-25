@@ -113,16 +113,25 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
                         FWTPM_TIS_BURST_COUNT);
                 }
                 if (val & FWTPM_STS_GO) {
-                    /* Execute command */
+                    /* Execute command - copy to local buffer first to
+                     * prevent TOCTOU if cmd_buf is in shared memory */
+                    byte localCmd[FWTPM_TIS_FIFO_SIZE];
+                    UINT32 localCmdLen;
                     int rspSize = 0;
                     int procRc;
 
+                    localCmdLen = regs->cmd_len;
+                    if (localCmdLen > FWTPM_TIS_FIFO_SIZE) {
+                        localCmdLen = FWTPM_TIS_FIFO_SIZE;
+                    }
+                    XMEMCPY(localCmd, regs->cmd_buf, localCmdLen);
+
                 #ifdef DEBUG_WOLFTPM
-                    printf("fwTPM TIS: GO cmd_len=%u\n", regs->cmd_len);
+                    printf("fwTPM TIS: GO cmd_len=%u\n", localCmdLen);
                 #endif
 
                     procRc = FWTPM_ProcessCommand(ctx,
-                        regs->cmd_buf, (int)regs->cmd_len,
+                        localCmd, (int)localCmdLen,
                         regs->rsp_buf, &rspSize, 0 /* locality */);
                     if (procRc != TPM_RC_SUCCESS || rspSize == 0) {
                         /* Build minimal error response */
@@ -245,7 +254,7 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
                 UINT32 i;
                 UINT32 avail;
                 if (regs->fifo_read_pos > regs->rsp_len ||
-                        regs->fifo_read_pos > sizeof(regs->rsp_buf)) {
+                        regs->fifo_read_pos >= sizeof(regs->rsp_buf)) {
                     avail = 0;
                 }
                 else {
