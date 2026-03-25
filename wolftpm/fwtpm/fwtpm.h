@@ -56,6 +56,12 @@
 #define FwStoreU32LE(buf, val) TPM2_Packet_U32ToByteArrayLE((val), (buf))
 #define FwLoadU16LE(buf)       TPM2_Packet_ByteArrayToU16LE(buf)
 #define FwLoadU32LE(buf)       TPM2_Packet_ByteArrayToU32LE(buf)
+#define FwStoreU64LE(buf, val) do { \
+    FwStoreU32LE((buf), (UINT32)(val)); \
+    FwStoreU32LE((buf) + 4, (UINT32)((UINT64)(val) >> 32)); \
+} while (0)
+#define FwLoadU64LE(buf) \
+    ((UINT64)FwLoadU32LE(buf) | ((UINT64)FwLoadU32LE((buf) + 4) << 32))
 
 #ifdef __cplusplus
     extern "C" {
@@ -155,6 +161,7 @@
 #ifndef FWTPM_MAX_ATTEST_BUF
 #define FWTPM_MAX_ATTEST_BUF   1024  /* Attestation info marshaling */
 #endif
+#define FWTPM_MAX_CMD_AUTHS    3     /* Max auth sessions per command */
 
 /* PCR banks: 0=SHA-256, 1=SHA-384 (if available) */
 #define FWTPM_PCR_BANK_SHA256  0
@@ -163,6 +170,13 @@
 #define FWTPM_PCR_BANK_SHA384  1
 #else
 #define FWTPM_PCR_BANKS        1
+#endif
+
+/* Default PCR bank allocation bitmap */
+#ifdef WOLFSSL_SHA384
+#define FWTPM_PCR_ALLOC_DEFAULT  0x03  /* SHA-256 + SHA-384 */
+#else
+#define FWTPM_PCR_ALLOC_DEFAULT  0x01  /* SHA-256 only */
 #endif
 
 /* Max digest size we track (SHA-384 = 48 bytes) */

@@ -158,7 +158,7 @@ server_stop() {
 
 # Restart server preserving NV state (for determinism tests)
 server_restart() {
-    # Flush NV to disk before killing (server has no SIGTERM handler).
+    # Send tpm2_shutdown to flush volatile state before stopping server.
     # Use explicit TCTI in case environment is not set.
     TPM2TOOLS_TCTI="${TCTI_TYPE}:host=localhost,port=2321" \
         tpm2_shutdown 2>/dev/null || true
@@ -934,7 +934,7 @@ if [ $NO_START -eq 0 ]; then
     DET_ECC_PRE=$(get_obj_name "$TEST_TMPDIR/det_ecc_pre.ctx")
     tpm2_flushcontext "$TEST_TMPDIR/det_ecc_pre.ctx" 2>/dev/null
 
-    # Flush NV to disk before restart (server has no SIGTERM handler)
+    # Send tpm2_shutdown to flush volatile state before restart
     run_test "shutdown (flush NV before restart)" \
         tpm2_shutdown
 

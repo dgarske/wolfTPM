@@ -47,6 +47,11 @@
 #define FWTPM_NV_MAX_SIZE  (128 * 1024)
 #endif
 
+/* NV marshal size estimates (conservative upper bounds) */
+#define FWTPM_NV_PUBAREA_EST   600   /* TPMT_PUBLIC max marshaled size */
+#define FWTPM_NV_NAME_EST       66   /* 2 (alg) + 64 (SHA-512 digest) */
+#define FWTPM_NV_AUTH_EST       68   /* 2 (size) + 2 (alg) + 64 (digest) */
+
 /* Maximum single TLV entry value size (PCR state is largest) */
 #define FWTPM_NV_MAX_ENTRY (IMPLEMENTATION_PCR * FWTPM_PCR_BANKS * \
                             TPM_MAX_DIGEST_SIZE + 4)

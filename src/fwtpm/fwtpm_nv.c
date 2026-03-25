@@ -783,7 +783,7 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
 
         case FWTPM_NV_TAG_PCR_AUTH: {
             int idx;
-            UINT8 allocBanks = 0x03; /* default both */
+            UINT8 allocBanks = FWTPM_PCR_ALLOC_DEFAULT;
             FwNvUnmarshalU8(value, &vPos, vMax, &allocBanks);
             ctx->pcrAllocatedBanks = allocBanks;
             for (idx = 0; idx < IMPLEMENTATION_PCR && vPos < vMax; idx++) {
@@ -810,12 +810,10 @@ static int FwNvProcessEntry(FWTPM_CTX* ctx, UINT16 tag,
         }
 
         case FWTPM_NV_TAG_CLOCK: {
-            UINT64 clockVal = 0;
-            UINT32 hi = 0;
-            FwNvUnmarshalU32(value, &vPos, vMax, (UINT32*)&clockVal);
+            UINT32 lo = 0, hi = 0;
+            FwNvUnmarshalU32(value, &vPos, vMax, &lo);
             FwNvUnmarshalU32(value, &vPos, vMax, &hi);
-            clockVal |= ((UINT64)hi << 32);
-            ctx->clockOffset = clockVal;
+            ctx->clockOffset = (UINT64)lo | ((UINT64)hi << 32);
             break;
         }
 
@@ -1105,7 +1103,7 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
     #endif
 
         /* PCR auth/policy defaults */
-        ctx->pcrAllocatedBanks = 0x03; /* SHA-256 + SHA-384 */
+        ctx->pcrAllocatedBanks = FWTPM_PCR_ALLOC_DEFAULT;
 
         /* Save initial state (compact write) */
         rc = FWTPM_NV_Save(ctx);
@@ -1224,7 +1222,7 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
                 break;
             }
         }
-        if (hasPcrAuth || ctx->pcrAllocatedBanks != 0x03) {
+        if (hasPcrAuth || ctx->pcrAllocatedBanks != FWTPM_PCR_ALLOC_DEFAULT) {
             word32 needed = 1 + IMPLEMENTATION_PCR * (2 + 64 + 2 + 64 + 2);
             if (needed > bufSz) {
                 byte* newBuf;
@@ -1323,8 +1321,8 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
             word32 needed;
             pos = 0;
             /* Estimate: ensure buf is large enough */
-            needed = 4 + 2 + 4 + 66 + 2 + /* nvPublic */
-                     2 + 64 + /* auth */
+            needed = 4 + 2 + 4 + FWTPM_NV_NAME_EST + 2 + /* nvPublic */
+                     FWTPM_NV_AUTH_EST + /* auth */
                      1 + 2 + ctx->nvIndices[i].nvPublic.dataSize;
             if (needed > bufSz) {
                 byte* newBuf;
@@ -1351,8 +1349,8 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
         if (ctx->persistent[i].used) {
             word32 needed;
             pos = 0;
-            needed = 4 + 600 + 66 + 2 + ctx->persistent[i].privKeySize +
-                     68;
+            needed = 4 + FWTPM_NV_PUBAREA_EST + FWTPM_NV_NAME_EST + 2 +
+                     ctx->persistent[i].privKeySize + FWTPM_NV_AUTH_EST;
             if (needed > bufSz) {
                 byte* newBuf;
                 newBuf = (byte*)XMALLOC(needed, NULL,
@@ -1378,7 +1376,8 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
         if (ctx->primaryCache[i].used) {
             word32 needed;
             pos = 0;
-            needed = 4 + 32 + 600 + 2 + ctx->primaryCache[i].privKeySize;
+            needed = 4 + 32 + FWTPM_NV_PUBAREA_EST + 2 +
+                     ctx->primaryCache[i].privKeySize;
             if (needed > bufSz) {
                 byte* newBuf;
                 newBuf = (byte*)XMALLOC(needed, NULL,
@@ -1633,8 +1632,8 @@ int FWTPM_NV_SaveNvIndex(FWTPM_CTX* ctx, int slot)
     }
 
     /* Estimate buffer size */
-    bufSz = 4 + 2 + 4 + 2 + 64 + 2 + /* nvPublic */
-            2 + 64 + /* auth */
+    bufSz = 4 + 2 + 4 + 2 + FWTPM_NV_NAME_EST + 2 + /* nvPublic */
+            FWTPM_NV_AUTH_EST + /* auth */
             1 + 2 + nv->nvPublic.dataSize; /* written + data */
 
     buf = (byte*)XMALLOC(bufSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
@@ -1683,7 +1682,8 @@ int FWTPM_NV_SavePersistent(FWTPM_CTX* ctx, int slot)
         return BAD_FUNC_ARG;
     }
 
-    bufSz = 4 + 600 + 2 + 64 + 2 + obj->privKeySize + 2 + 68;
+    bufSz = 4 + FWTPM_NV_PUBAREA_EST + 2 + FWTPM_NV_NAME_EST + 2 +
+            obj->privKeySize + 2 + FWTPM_NV_AUTH_EST;
 
     buf = (byte*)XMALLOC(bufSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     if (buf == NULL) {
@@ -1731,7 +1731,7 @@ int FWTPM_NV_SavePrimaryCache(FWTPM_CTX* ctx, int slot)
         return BAD_FUNC_ARG;
     }
 
-    bufSz = 4 + 32 + 600 + 2 + cache->privKeySize;
+    bufSz = 4 + 32 + FWTPM_NV_PUBAREA_EST + 2 + cache->privKeySize;
 
     buf = (byte*)XMALLOC(bufSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     if (buf == NULL) {

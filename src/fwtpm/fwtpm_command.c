@@ -3554,9 +3554,10 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_AppendPublicArea(&tmpPkt2, &inPublic.publicArea);
         FwStoreU16BE(objName, inPublic.publicArea.nameAlg);
         if (nameDigSz > 0) {
-            wc_Hash(FwGetWcHashType(inPublic.publicArea.nameAlg),
+            int hashRc = wc_Hash(FwGetWcHashType(inPublic.publicArea.nameAlg),
                 pubBuf2, tmpPkt2.pos, objName + 2, nameDigSz);
-            objNameSz = 2 + nameDigSz;
+            if (hashRc == 0)
+                objNameSz = 2 + nameDigSz;
         }
         FWTPM_FREE_BUF(pubBuf2);
 
@@ -12232,7 +12233,6 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     }
 
     /* Track all auth sessions from command for response auth generation */
-    #define FWTPM_MAX_CMD_AUTHS 3
     struct {
         TPM_HANDLE handle;
         FWTPM_Session* sess;   /* NULL for TPM_RS_PW */
@@ -12267,11 +12267,12 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             TPM2_Packet_ParseU32(&cmdPkt, &authAreaSz);
 
             if (authAreaSz > 0) {
-                int authEnd = cmdPkt.pos + (int)authAreaSz;
-                /* Clamp authEnd to command size to prevent OOB reads */
-                if (authEnd > cmdSize) {
-                    authEnd = cmdSize;
+                int authEnd;
+                /* Clamp authAreaSz to prevent integer overflow */
+                if (authAreaSz > (UINT32)(cmdSize - cmdPkt.pos)) {
+                    authAreaSz = (UINT32)(cmdSize - cmdPkt.pos);
                 }
+                authEnd = cmdPkt.pos + (int)authAreaSz;
 
                 while (cmdPkt.pos + 7 <= authEnd && cmdPkt.pos < cmdSize &&
                        cmdAuthCnt < FWTPM_MAX_CMD_AUTHS) {
