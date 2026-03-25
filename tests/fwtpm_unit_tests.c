@@ -895,6 +895,7 @@ static int BuildCreatePrimaryCmd(byte* buf, TPM_ALG_ID algType)
     return pos;
 }
 
+#ifndef NO_RSA
 static void test_fwtpm_create_primary_rsa(void)
 {
     FWTPM_CTX ctx;
@@ -925,6 +926,7 @@ static void test_fwtpm_create_primary_rsa(void)
     FWTPM_Cleanup(&ctx);
     printf("Test fwTPM:\tCreatePrimary(RSA-2048):\t\tPassed\n");
 }
+#endif /* !NO_RSA */
 
 #ifdef HAVE_ECC
 static void test_fwtpm_create_primary_ecc(void)
