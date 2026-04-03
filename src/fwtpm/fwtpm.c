@@ -93,6 +93,11 @@ int FWTPM_Init(FWTPM_CTX* ctx)
 
     /* Initialize NV storage - loads existing state or creates fresh seeds */
     rc = FWTPM_NV_Init(ctx);
+    if (rc != 0) {
+        wc_FreeRng(&ctx->rng);
+        wolfCrypt_Cleanup();
+        return rc;
+    }
 
     return rc;
 }

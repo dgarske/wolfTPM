@@ -292,7 +292,7 @@ then
     fi
     # WOLFTPM_FWTPM is set only for fwtpm_server target in src/fwtpm/include.am
     # Do not add to AM_CFLAGS - it would exclude client-side code from the library
-    if test "x$ENABLED_SWTPM" != "xyes"
+    if test "x$ENABLED_SWTPM" != "xyes" && test "x$ENABLED_SWTPM" != "xuart"
     then
         # TIS/shared-memory transport for fwTPM (instead of socket)
         AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_FWTPM_HAL -DWOLFTPM_ADV_IO"
@@ -313,7 +313,7 @@ then
     ENABLED_EXAMPLES=no
     ENABLED_WRAPPER=no
     AM_CFLAGS="$AM_CFLAGS -DWOLFTPM2_NO_WRAPPER"
-    if test "x$ENABLED_SWTPM" != "xyes"
+    if test "x$ENABLED_SWTPM" != "xyes" && test "x$ENABLED_SWTPM" != "xuart"
     then
         AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_FWTPM_HAL -DWOLFTPM_ADV_IO"
         ENABLED_FWTPM_TIS=yes

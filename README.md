@@ -50,7 +50,7 @@ discrete TPM chip, or serve as a drop-in development and CI/CD replacement for
 external simulators like swtpm or the Microsoft TPM simulator.
 
 Features:
-* 103 TPM 2.0 commands implemented (91% of v1.38 spec) with wolfCrypt cryptography (RSA, ECC, SHA, AES, HMAC)
+* 105 TPM 2.0 commands implemented (93% of v1.38 spec) with wolfCrypt cryptography (RSA, ECC, SHA, AES, HMAC)
 * Socket transport (Microsoft TPM simulator protocol) compatible with `tpm2-tools` and wolfTPM examples
 * TIS register-level transport over shared memory or SPI/I2C for bare-metal integration
 * HAL abstractions for IO transport and NV storage portability

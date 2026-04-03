@@ -215,6 +215,16 @@ int TPM2_KDFe_ex(
         counter++;
         copyLen = hLen;
 
+        /* Reinitialize hash context for each iteration so each block is
+         * computed independently: H(counter || Z || label || partyU || partyV) */
+        if (pos > 0) {
+            wc_HashFree(&hash_ctx, hashType);
+            ret = wc_HashInit(&hash_ctx, hashType);
+            if (ret != 0) {
+                break;
+            }
+        }
+
         /* counter (big-endian) */
         TPM2_Packet_U32ToByteArray(counter, uint32Buf);
         ret = wc_HashUpdate(&hash_ctx, hashType, uint32Buf,

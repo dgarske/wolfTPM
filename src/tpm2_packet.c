@@ -760,12 +760,14 @@ TPM_RC TPM2_Packet_ParseSensitiveCreate(TPM2_Packet* packet, int maxSize,
     TPM_RC rc = TPM_RC_SUCCESS;
     UINT16 inSensSize;
     UINT16 dataSz;
+    int sensStartPos;
 
     if (packet->pos + 2 > maxSize) {
         rc = TPM_RC_COMMAND_SIZE;
     }
     if (rc == 0) {
         TPM2_Packet_ParseU16(packet, &inSensSize);
+        sensStartPos = packet->pos;
         /* Validate outer TPM2B size fits within remaining command */
         if (inSensSize > 0 &&
             packet->pos + inSensSize > maxSize) {
@@ -820,7 +822,14 @@ TPM_RC TPM2_Packet_ParseSensitiveCreate(TPM2_Packet* packet, int maxSize,
     if (rc == 0 && sensDataSize != NULL) {
         *sensDataSize = dataSz;
     }
-    (void)inSensSize;
+    /* Ensure packet pos is aligned to end of TPM2B_SENSITIVE_CREATE, even if
+     * inner fields didn't consume all bytes (prevents desync on malformed input) */
+    if (rc == 0 && inSensSize > 0) {
+        int expectedEnd = sensStartPos + (int)inSensSize;
+        if (packet->pos < expectedEnd && expectedEnd <= maxSize) {
+            packet->pos = expectedEnd;
+        }
+    }
     return rc;
 }
 #endif /* WOLFTPM_FWTPM */

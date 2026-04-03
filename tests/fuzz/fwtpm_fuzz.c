@@ -110,6 +110,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         if (FWTPM_Init(&g_ctx) == 0) {
             fuzz_startup();
         }
+        else {
+            g_initialized = 0;
+        }
     }
 
     /* TPM commands have a 10-byte minimum header (tag + size + CC) */
