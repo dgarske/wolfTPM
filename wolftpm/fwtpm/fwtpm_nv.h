@@ -37,7 +37,7 @@
 
 /* NV file header magic and version */
 #define FWTPM_NV_MAGIC     0x66775450  /* "fwTP" */
-#define FWTPM_NV_VERSION   3           /* TLV journal format */
+#define FWTPM_NV_VERSION   4           /* TLV journal format */
 
 /* Hierarchy seed size (SHA-384 digest length) */
 #define FWTPM_SEED_SIZE    TPM_SHA384_DIGEST_SIZE

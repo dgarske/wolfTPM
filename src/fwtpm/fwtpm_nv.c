@@ -293,27 +293,23 @@ static int FwNvUnmarshalDigest(const byte* buf, word32* pos, word32 maxSz,
     return FwNvUnmarshalAuth(buf, pos, maxSz, (TPM2B_AUTH*)digest);
 }
 
-/* Marshal TPMT_PUBLIC using TPM2_Packet infrastructure */
+/* Marshal TPMT_PUBLIC using TPM2_Packet infrastructure.
+ * Uses TPM2_Packet_AppendPublic which writes a BE size prefix + public area. */
 static int FwNvMarshalPublic(byte* buf, word32* pos, word32 maxSz,
     TPMT_PUBLIC* pub)
 {
     TPM2_Packet pkt;
-    UINT16 pubSz;
+    TPM2B_PUBLIC pub2b;
 
-    if (*pos + 2 > maxSz) {
-        return TPM_RC_FAILURE;
-    }
-
-    /* Marshal public area into buffer after 2-byte size prefix */
-    pkt.buf = (byte*)(buf + *pos + 2);
+    XMEMSET(&pkt, 0, sizeof(pkt));
+    pkt.buf = buf + *pos;
     pkt.pos = 0;
-    pkt.size = (int)(maxSz - *pos - 2);
-    TPM2_Packet_AppendPublicArea(&pkt, pub);
-    pubSz = (UINT16)pkt.pos;
+    pkt.size = (int)(maxSz - *pos);
 
-    /* Write size prefix */
-    FwStoreU16LE(buf + *pos, pubSz);
-    *pos += 2 + pubSz;
+    XMEMCPY(&pub2b.publicArea, pub, sizeof(TPMT_PUBLIC));
+    TPM2_Packet_AppendPublic(&pkt, &pub2b);
+
+    *pos += pkt.pos;
     return 0;
 }
 
@@ -322,24 +318,16 @@ static int FwNvUnmarshalPublic(const byte* buf, word32* pos, word32 maxSz,
 {
     TPM2_Packet pkt;
     TPM2B_PUBLIC pub2b;
-    UINT16 pubSz;
-    int rc;
 
-    rc = FwNvUnmarshalU16(buf, pos, maxSz, &pubSz);
-    if (rc != 0 || *pos + pubSz > maxSz) {
-        return TPM_RC_FAILURE;
-    }
-
-    /* Use TPM2_Packet_ParsePublic to deserialize */
-    pkt.buf = (byte*)(buf + *pos - 2); /* back up to include size field */
+    XMEMSET(&pkt, 0, sizeof(pkt));
+    pkt.buf = (byte*)(buf + *pos);
     pkt.pos = 0;
-    pkt.size = (int)(pubSz + 2);
-    pub2b.size = pubSz;
-    /* Re-read size in packet format */
-    pkt.pos = 2; /* skip size we already read */
+    pkt.size = (int)(maxSz - *pos);
+
     TPM2_Packet_ParsePublic(&pkt, &pub2b);
     XMEMCPY(pub, &pub2b.publicArea, sizeof(TPMT_PUBLIC));
-    *pos += pubSz;
+
+    *pos += pkt.pos;
     return 0;
 }
 
@@ -641,6 +629,10 @@ static int FwNvAppendEntry(FWTPM_CTX* ctx, UINT16 tag,
 
     /* Check if journal has space */
     if (ctx->nvWritePos + entrySize > hal->maxSize) {
+        /* If already compacting, NV is genuinely full */
+        if (ctx->nvCompacting) {
+            return TPM_RC_NV_SPACE;
+        }
         /* Compact and retry */
         rc = FWTPM_NV_Save(ctx);
         if (rc != TPM_RC_SUCCESS) {
@@ -1149,6 +1141,8 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
         return TPM_RC_MEMORY;
     }
 
+    ctx->nvCompacting = 1;
+
     /* Erase NV storage */
     if (hal->erase != NULL) {
         rc = hal->erase(hal->ctx, 0, hal->maxSize);
@@ -1408,6 +1402,7 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
     printf("fwTPM: NV saved (compact, %d bytes)\n", (int)ctx->nvWritePos);
 #endif
 
+    ctx->nvCompacting = 0;
     XFREE(buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     return rc;
 }

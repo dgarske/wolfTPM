@@ -644,7 +644,10 @@ static TPM_RC FwCmd_Shutdown(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             FwFlushAllSessions(ctx);
         }
 
-        FWTPM_NV_Save(ctx);
+        rc = FWTPM_NV_Save(ctx);
+        if (rc != TPM_RC_SUCCESS) {
+            return rc;
+        }
 
         FwRspFinalize(rsp, TPM_ST_NO_SESSIONS, TPM_RC_SUCCESS);
     }
@@ -1660,7 +1663,10 @@ static TPM_RC FwCmd_PCR_Allocate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         printf("fwTPM: PCR_Allocate(banks=0x%02x)\n", newBanks);
     #endif
         ctx->pcrAllocatedBanks = newBanks;
-        FWTPM_NV_Save(ctx);
+        rc = FWTPM_NV_Save(ctx);
+        if (rc != TPM_RC_SUCCESS) {
+            return rc;
+        }
 
         sizeAvailable = (UINT32)(IMPLEMENTATION_PCR * FWTPM_PCR_BANKS *
             TPM_MAX_DIGEST_SIZE);
@@ -12786,9 +12792,13 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
      * commands are naturally invalidated when their auth values change, and
      * the session slots are reused on next StartAuthSession. */
     if (ctx->pendingClear) {
+        int nvRc;
         ctx->pendingClear = 0;
         FwFlushAllObjects(ctx);
-        FWTPM_NV_Save(ctx);
+        nvRc = FWTPM_NV_Save(ctx);
+        if (nvRc != TPM_RC_SUCCESS) {
+            return nvRc;
+        }
     }
 
     return TPM_RC_SUCCESS;

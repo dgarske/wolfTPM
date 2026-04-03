@@ -104,7 +104,16 @@ void FWTPM_Cleanup(FWTPM_CTX* ctx)
     }
 
     /* Save NV state before cleanup */
-    FWTPM_NV_Save(ctx);
+    {
+        int nvRc = FWTPM_NV_Save(ctx);
+    #ifdef DEBUG_WOLFTPM
+        if (nvRc != TPM_RC_SUCCESS) {
+            printf("fwTPM: NV save failed during cleanup (rc=%d)\n", nvRc);
+        }
+    #else
+        (void)nvRc;
+    #endif
+    }
 
     wc_FreeRng(&ctx->rng);
     wolfCrypt_Cleanup();

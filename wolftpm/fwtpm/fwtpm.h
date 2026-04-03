@@ -448,6 +448,7 @@ typedef struct FWTPM_CTX {
 
     /* NV journal write position (next append offset) */
     word32 nvWritePos;
+    int nvCompacting;   /* Guard flag to prevent cyclic recursion during NV compaction */
 
     /* ContextSave sequence counter (monotonic, reset on init) */
     UINT64 contextSeqCounter;
