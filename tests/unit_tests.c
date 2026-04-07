@@ -571,7 +571,7 @@ static void test_TPM2_KDFe(void)
         partyU, sizeof(partyU), partyV, sizeof(partyV),
         key2, sizeof(key2));
     AssertIntEQ((int)sizeof(key2), rc);
-    AssertIntEQ(XMEMCMP(key, key2, sizeof(key)), 0);
+    AssertIntEQ(0, XMEMCMP(key, key2, sizeof(key)));
 #endif
 
     printf("Test TPM Wrapper:\tKDFe:\t%s\n",

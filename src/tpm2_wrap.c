@@ -695,7 +695,7 @@ int wolfTPM2_SetKeyAuthPassword(WOLFTPM2_KEY *key, const byte* auth,
         return BAD_FUNC_ARG;
     }
 
-    /* specify auth password for storage key */
+    /* Note: returns error instead of truncating for security (v3.11+) */
     if (authSz > (int)sizeof(key->handle.auth.buffer)) {
         return BUFFER_E;
     }
@@ -1669,6 +1669,7 @@ int wolfTPM2_SetAuth(WOLFTPM2_DEV* dev, int index,
     session->sessionAttributes = sessionAttributes;
     if (auth) {
         session->auth.size = auth->size;
+        /* Note: returns error instead of truncating for security (v3.11+) */
         if (session->auth.size > sizeof(session->auth.buffer)) {
             return BUFFER_E;
         }
@@ -1756,6 +1757,7 @@ int wolfTPM2_SetAuthHandleName(WOLFTPM2_DEV* dev, int index,
         if (session->sessionHandle == TPM_RS_PW) {
             /* password based authentication */
             session->auth.size = handle->auth.size;
+            /* Note: returns error instead of truncating for security (v3.11+) */
             if (session->auth.size > sizeof(session->auth.buffer)) {
                 return BUFFER_E;
             }
@@ -1766,6 +1768,7 @@ int wolfTPM2_SetAuthHandleName(WOLFTPM2_DEV* dev, int index,
             if (handle->policyPass) {
                 /* use policy password directly */
                 session->auth.size = handle->auth.size;
+                /* Note: returns error instead of truncating for security (v3.11+) */
                 if (session->auth.size > sizeof(session->auth.buffer)) {
                     return BUFFER_E;
                 }
@@ -2574,6 +2577,7 @@ int wolfTPM2_ChangeAuthKey(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     changeIn.objectHandle = key->handle.hndl;
     changeIn.parentHandle = parent->hndl;
     if (auth) {
+        /* Note: returns error instead of truncating for security (v3.11+) */
         if (authSz > (int)sizeof(changeIn.newAuth.buffer)) {
             return BUFFER_E;
         }

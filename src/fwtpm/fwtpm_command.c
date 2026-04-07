@@ -4922,6 +4922,7 @@ static TPM_RC FwCmd_Rewrap(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     UINT16 symSeedSz = 0;
     FWTPM_DECLARE_BUF(symSeedBuf, FWTPM_MAX_PUB_BUF);
     FWTPM_DECLARE_BUF(plainSens, FWTPM_MAX_SENSITIVE_SIZE);
+    FWTPM_DECLARE_BUF(encSeedBuf, FWTPM_MAX_PUB_BUF);
     int plainSensSz = 0;
     byte seedBuf[64];
     int seedSz = 0;
@@ -4934,6 +4935,7 @@ static TPM_RC FwCmd_Rewrap(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_ALLOC_BUF(dupBuf, FWTPM_MAX_PRIVKEY_DER + 256);
     FWTPM_ALLOC_BUF(symSeedBuf, FWTPM_MAX_PUB_BUF);
     FWTPM_ALLOC_BUF(plainSens, FWTPM_MAX_SENSITIVE_SIZE);
+    FWTPM_ALLOC_BUF(encSeedBuf, FWTPM_MAX_PUB_BUF);
 
     /* Parse handles */
     TPM2_Packet_ParseU32(cmd, &oldParentH);
@@ -5053,7 +5055,6 @@ static TPM_RC FwCmd_Rewrap(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0 && newParent != NULL) {
         TPMI_ALG_HASH parentNameAlg = newParent->pub.nameAlg;
         int symKeySz, digestSz;
-        byte encSeedBuf[FWTPM_MAX_PUB_BUF];
         int encSeedSz = 0;
         byte hmacDigest[TPM_MAX_DIGEST_SIZE];
         int outPos = 0;
@@ -5144,6 +5145,7 @@ static TPM_RC FwCmd_Rewrap(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     FWTPM_FREE_BUF(dupBuf);
     FWTPM_FREE_BUF(symSeedBuf);
     FWTPM_FREE_BUF(plainSens);
+    FWTPM_FREE_BUF(encSeedBuf);
     return rc;
 }
 

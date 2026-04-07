@@ -228,6 +228,7 @@ if [ $IS_FWTPM_MODE -eq 1 ]; then
         rm -f "$TOP_DIR"/certs/tpm-*-cert.pem "$TOP_DIR"/certs/tpm-*-cert.csr
         rm -f "$TOP_DIR"/certs/server-*-cert.pem "$TOP_DIR"/certs/client-*-cert.pem
 
+        # Kill any orphaned servers from prior crashed runs (intentional pre-flight)
         killall fwtpm_server 2>/dev/null || true
         sleep 0.3
 

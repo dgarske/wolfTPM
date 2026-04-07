@@ -61,7 +61,7 @@ static UINT32 TisRegOffset(UINT32 addr)
     return addr & 0x0FFFu;
 }
 
-/* Build STS register value with burst count in upper 16 bits */
+/* Build STS register value with burst count in bits 8-23 */
 static UINT32 TisBuildSts(BYTE stsFlags, UINT16 burstCount)
 {
     return ((UINT32)burstCount << 8) | (UINT32)stsFlags;
