@@ -1,4 +1,4 @@
-/* wolftpm_example.h
+/* fwtpm_command.h
  *
  * Copyright (C) 2006-2025 wolfSSL Inc.
  *
@@ -19,25 +19,31 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
+#ifndef _FWTPM_COMMAND_H_
+#define _FWTPM_COMMAND_H_
 
-#ifndef WOLFTPM_EXAMPLE_H_
-#define WOLFTPM_EXAMPLE_H_
+#ifdef WOLFTPM_FWTPM
 
-#include <stm32f4xx_hal.h>
-#include <stm32f4xx.h>
-#include <cmsis_os.h>
+#include <wolftpm/fwtpm/fwtpm.h>
 
-#ifndef WOLFSSL_USER_SETTINGS
-	#include <wolfssl/options.h>
+#ifdef __cplusplus
+    extern "C" {
 #endif
-#include <wolfssl/wolfcrypt/settings.h>
-#include <wolfssl/ssl.h>
-#include <wolfcrypt/test/test.h>
-#include <wolfcrypt/benchmark/benchmark.h>
 
-#include <wolftpm/tpm2.h>
+/* Process a TPM command buffer and produce a response buffer.
+ * cmdBuf/cmdSize: input command (big-endian TPM packet)
+ * rspBuf/rspSize: output response buffer and resulting size
+ * locality: the locality from the transport layer
+ * Returns TPM_RC_SUCCESS on successful processing (response may contain error RC)
+ */
+WOLFTPM_API int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
+    const byte* cmdBuf, int cmdSize,
+    byte* rspBuf, int* rspSize, int locality);
 
-void wolfTPMDemo(void const * argument);
+#ifdef __cplusplus
+    }  /* extern "C" */
+#endif
 
+#endif /* WOLFTPM_FWTPM */
 
-#endif /* WOLFTPM_EXAMPLE_H_ */
+#endif /* _FWTPM_COMMAND_H_ */

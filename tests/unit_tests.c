@@ -226,7 +226,7 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
     int rc;
     WOLFTPM2_DEV dev;
     WOLFTPM2_CAPS caps;
-#ifndef WOLFTPM2_NO_WOLFCRYPT
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_SHA384)
     /* Invalid manifest size (not 177 or 2697) for testing auto-detection */
     uint8_t dummy_manifest[10] = {0};
 #endif
@@ -265,11 +265,11 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
     rc = wolfTPM2_FirmwareUpgradeRecover(NULL, NULL, 0, NULL, NULL);
     AssertIntNE(rc, 0);
 
-#ifndef WOLFTPM2_NO_WOLFCRYPT
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_SHA384)
     /* wolfTPM2_FirmwareUpgrade - NULL dev */
     rc = wolfTPM2_FirmwareUpgrade(NULL, NULL, 0, NULL, NULL);
     AssertIntNE(rc, 0);
-#endif /* !WOLFTPM2_NO_WOLFCRYPT */
+#endif /* !WOLFTPM2_NO_WOLFCRYPT && WOLFSSL_SHA384 */
 
     /* ===== Test NULL/invalid parameter combinations ===== */
 
@@ -289,7 +289,7 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
      * just verify it doesn't crash */
     (void)rc;
 
-#ifndef WOLFTPM2_NO_WOLFCRYPT
+#if !defined(WOLFTPM2_NO_WOLFCRYPT) && defined(WOLFSSL_SHA384)
     /* wolfTPM2_FirmwareUpgrade - valid dev, NULL manifest */
     rc = wolfTPM2_FirmwareUpgrade(&dev, NULL, 0, NULL, NULL);
     AssertIntNE(rc, 0);
@@ -309,7 +309,7 @@ static void test_wolfTPM2_ST33_FirmwareUpgrade(void)
             dummy_manifest, sizeof(dummy_manifest), NULL, NULL);
         AssertIntEQ(rc, BAD_FUNC_ARG);
     }
-#endif /* !WOLFTPM2_NO_WOLFCRYPT */
+#endif /* !WOLFTPM2_NO_WOLFCRYPT && WOLFSSL_SHA384 */
 
     wolfTPM2_Cleanup(&dev);
 
@@ -527,8 +527,9 @@ static void test_TPM2_KDFa(void)
         0xd7, 0x04, 0xb6, 0x9a, 0x90, 0x2e, 0x9a, 0xde, 0x84, 0xc4};
 #endif
 
-    rc = TPM2_KDFa(TPM_ALG_SHA256, &keyIn, label, &contextU, &contextV, key,
-        keyIn.size);
+    rc = TPM2_KDFa_ex(TPM_ALG_SHA256, keyIn.buffer, keyIn.size, label,
+        contextU.buffer, contextU.size, contextV.buffer, contextV.size,
+        key, keyIn.size);
 #ifdef WOLFTPM2_NO_WOLFCRYPT
     AssertIntEQ(NOT_COMPILED_IN, rc);
 #else
@@ -538,6 +539,113 @@ static void test_TPM2_KDFa(void)
 
     printf("Test TPM Wrapper:\tKDFa:\t%s\n",
         rc >= 0 ? "Passed" : "Failed");
+}
+
+static void test_TPM2_KDFe(void)
+{
+    int rc;
+    #define TEST_KDFE_KEYSZ 32
+    /* Use a simple known Z, label, and party info */
+    const byte Z[TEST_KDFE_KEYSZ] = {
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
+        0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+        0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20};
+    const char label[] = "IDENTITY";
+    const byte partyU[8] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0x11};
+    const byte partyV[8] = {0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99};
+    byte key[TEST_KDFE_KEYSZ];
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    byte key2[TEST_KDFE_KEYSZ];
+#endif
+
+    rc = TPM2_KDFe_ex(TPM_ALG_SHA256, Z, sizeof(Z), label,
+        partyU, sizeof(partyU), partyV, sizeof(partyV),
+        key, sizeof(key));
+#ifdef WOLFTPM2_NO_WOLFCRYPT
+    AssertIntEQ(NOT_COMPILED_IN, rc);
+#else
+    AssertIntEQ((int)sizeof(key), rc);
+    /* Verify deterministic: same inputs produce same output */
+    rc = TPM2_KDFe_ex(TPM_ALG_SHA256, Z, sizeof(Z), label,
+        partyU, sizeof(partyU), partyV, sizeof(partyV),
+        key2, sizeof(key2));
+    AssertIntEQ((int)sizeof(key2), rc);
+    AssertIntEQ(XMEMCMP(key, key2, sizeof(key)), 0);
+#endif
+
+    printf("Test TPM Wrapper:\tKDFe:\t%s\n",
+        rc >= 0 ? "Passed" : "Failed");
+}
+
+static void test_TPM2_HmacCompute(void)
+{
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    int rc;
+    /* RFC 4231 Test Case 2: HMAC-SHA256 with "Jefe" key and "what do ya want
+     * for nothing?" data */
+    const byte hmacKey[] = "Jefe";
+    const byte hmacData[] = "what do ya want for nothing?";
+    const byte hmacExp[] = {
+        0x5b, 0xdc, 0xc1, 0x46, 0xbf, 0x60, 0x75, 0x4e,
+        0x6a, 0x04, 0x24, 0x26, 0x08, 0x95, 0x75, 0xc7,
+        0x5a, 0x00, 0x3f, 0x08, 0x9d, 0x27, 0x39, 0x83,
+        0x9d, 0xec, 0x58, 0xb9, 0x64, 0xec, 0x38, 0x43};
+    byte digest[TPM_MAX_DIGEST_SIZE];
+    word32 digestSz = sizeof(digest);
+
+    rc = TPM2_HmacCompute(TPM_ALG_SHA256,
+        hmacKey, 4, /* "Jefe" without null terminator */
+        hmacData, 28, /* "what do ya want for nothing?" without null */
+        NULL, 0,
+        digest, &digestSz);
+    AssertIntEQ(0, rc);
+    AssertIntEQ(32, (int)digestSz);
+    AssertIntEQ(XMEMCMP(digest, hmacExp, sizeof(hmacExp)), 0);
+
+    /* Test HmacVerify with correct expected value */
+    rc = TPM2_HmacVerify(TPM_ALG_SHA256,
+        hmacKey, 4, hmacData, 28, NULL, 0,
+        hmacExp, sizeof(hmacExp));
+    AssertIntEQ(0, rc);
+
+    /* Test HmacVerify with wrong expected value */
+    digest[0] ^= 0xFF;
+    rc = TPM2_HmacVerify(TPM_ALG_SHA256,
+        hmacKey, 4, hmacData, 28, NULL, 0,
+        digest, digestSz);
+    AssertIntEQ(TPM_RC_INTEGRITY, rc);
+
+    printf("Test TPM Wrapper:\tHmacCompute:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tHmacCompute:\tSkipped\n");
+#endif
+}
+
+static void test_TPM2_HashCompute(void)
+{
+#ifndef WOLFTPM2_NO_WOLFCRYPT
+    int rc;
+    /* SHA-256 of empty string */
+    const byte hashExp[] = {
+        0xe3, 0xb0, 0xc4, 0x42, 0x98, 0xfc, 0x1c, 0x14,
+        0x9a, 0xfb, 0xf4, 0xc8, 0x99, 0x6f, 0xb9, 0x24,
+        0x27, 0xae, 0x41, 0xe4, 0x64, 0x9b, 0x93, 0x4c,
+        0xa4, 0x95, 0x99, 0x1b, 0x78, 0x52, 0xb8, 0x55};
+    byte digest[TPM_MAX_DIGEST_SIZE];
+    word32 digestSz = sizeof(digest);
+
+    rc = TPM2_HashCompute(TPM_ALG_SHA256,
+        (const byte*)"", 0,
+        digest, &digestSz);
+    AssertIntEQ(0, rc);
+    AssertIntEQ(32, (int)digestSz);
+    AssertIntEQ(XMEMCMP(digest, hashExp, sizeof(hashExp)), 0);
+
+    printf("Test TPM Wrapper:\tHashCompute:\tPassed\n");
+#else
+    printf("Test TPM Wrapper:\tHashCompute:\tSkipped\n");
+#endif
 }
 
 static void test_GetAlgId(void)
@@ -1175,6 +1283,9 @@ int unit_tests(int argc, char *argv[])
     test_TPM2_PCRSel();
     test_TPM2_Policy_NULL_Args();
     test_TPM2_KDFa();
+    test_TPM2_KDFe();
+    test_TPM2_HmacCompute();
+    test_TPM2_HashCompute();
     test_GetAlgId();
     test_wolfTPM2_ReadPublicKey();
     test_wolfTPM2_CSR();

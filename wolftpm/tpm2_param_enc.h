@@ -24,15 +24,28 @@
 
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_packet.h>
+#include <wolftpm/tpm2_crypto.h> /* TPM2_KDFa/KDFe moved here */
 
 #ifdef __cplusplus
     extern "C" {
 #endif
 
-WOLFTPM_API int TPM2_KDFa(
-    TPM_ALG_ID hashAlg, TPM2B_DATA *keyIn,
-    const char *label, TPM2B_NONCE *contextU, TPM2B_NONCE *contextV,
-    BYTE *key, UINT32 keySz
+/* XOR parameter encryption/decryption (raw pointer interface) */
+WOLFTPM_LOCAL int TPM2_ParamEnc_XOR(
+    TPMI_ALG_HASH authHash,
+    const BYTE *keyIn, UINT32 keyInSz,
+    const BYTE *nonceA, UINT32 nonceASz,
+    const BYTE *nonceB, UINT32 nonceBSz,
+    BYTE *paramData, UINT32 paramSz
+);
+
+/* AES-CFB parameter encryption/decryption */
+WOLFTPM_LOCAL int TPM2_ParamEnc_AESCFB(
+    TPMI_ALG_HASH authHash, UINT16 keyBits,
+    const BYTE *keyIn, UINT32 keyInSz,
+    const BYTE *nonceA, UINT32 nonceASz,
+    const BYTE *nonceB, UINT32 nonceBSz,
+    BYTE *paramData, UINT32 paramSz, int doEncrypt
 );
 
 WOLFTPM_LOCAL int TPM2_CalcHmac(TPMI_ALG_HASH authHash, TPM2B_AUTH* auth,
