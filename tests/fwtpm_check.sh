@@ -11,12 +11,13 @@
 # Exit: 0 = pass, 77 = skip, non-zero = fail
 #
 
+BUILD_DIR="$(pwd)"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-TOP_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+SRC_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-FWTPM_SERVER="$TOP_DIR/src/fwtpm/fwtpm_server"
-UNIT_TEST="$TOP_DIR/tests/unit.test"
-RUN_EXAMPLES="$TOP_DIR/examples/run_examples.sh"
+FWTPM_SERVER="$BUILD_DIR/src/fwtpm/fwtpm_server"
+UNIT_TEST="$BUILD_DIR/tests/unit.test"
+RUN_EXAMPLES="$SRC_DIR/examples/run_examples.sh"
 PID_FILE="/tmp/fwtpm_check_$$.pid"
 
 PASS=0
@@ -149,7 +150,7 @@ trap cleanup EXIT
 IS_SWTPM_MODE=0
 IS_FWTPM_MODE=0
 HAS_GETENV=1
-WOLFTPM_OPTIONS="$TOP_DIR/wolftpm/options.h"
+WOLFTPM_OPTIONS="$BUILD_DIR/wolftpm/options.h"
 if [ -f "$WOLFTPM_OPTIONS" ]; then
     if grep -q "WOLFTPM_SWTPM" "$WOLFTPM_OPTIONS"; then
         IS_SWTPM_MODE=1
@@ -205,6 +206,37 @@ if [ $HAS_RSA_NO_PAD -eq 0 ]; then
     SKIP_EXAMPLES=1
 fi
 
+# --- Auto-detect feature flags for run_examples.sh ---
+
+# Defaults (match run_examples.sh defaults)
+WOLFCRYPT_ENABLE=${WOLFCRYPT_ENABLE:-1}
+WOLFCRYPT_RSA=${WOLFCRYPT_RSA:-1}
+WOLFCRYPT_ECC=${WOLFCRYPT_ECC:-1}
+NO_FILESYSTEM=${NO_FILESYSTEM:-0}
+NO_PUBASPRIV=${NO_PUBASPRIV:-0}
+WOLFCRYPT_DEFAULT=${WOLFCRYPT_DEFAULT:-0}
+
+# Detect from wolftpm/options.h
+if [ -f "$WOLFTPM_OPTIONS" ] && grep -q "WOLFTPM2_NO_WOLFCRYPT" "$WOLFTPM_OPTIONS"; then
+    WOLFCRYPT_ENABLE=0
+fi
+
+# Detect from wolfSSL options.h (system-installed or WOLFSSL_PATH)
+WOLFSSL_OPTS=""
+for chk in /usr/local "$WOLFSSL_PATH"; do
+    [ -z "$chk" ] && continue
+    found=$(find_wolfssl_options "$chk" 2>/dev/null)
+    if [ -n "$found" ]; then WOLFSSL_OPTS="$found"; break; fi
+done
+
+if [ -n "$WOLFSSL_OPTS" ]; then
+    grep -q "NO_RSA" "$WOLFSSL_OPTS" && WOLFCRYPT_RSA=0
+    grep -q "HAVE_ECC" "$WOLFSSL_OPTS" || WOLFCRYPT_ECC=0
+    grep -q "NO_FILESYSTEM" "$WOLFSSL_OPTS" && NO_FILESYSTEM=1
+    grep -q "WOLFSSL_PUBLIC_ASN_PRIV_KEY" "$WOLFSSL_OPTS" || NO_PUBASPRIV=1
+    grep -q "WOLFSSL_AES_CFB" "$WOLFSSL_OPTS" || WOLFCRYPT_DEFAULT=1
+fi
+
 # --- Determine port and start/detect server ---
 
 # Default port (honor env var override)
@@ -222,11 +254,11 @@ if [ $IS_FWTPM_MODE -eq 1 ]; then
         fi
     else
         # Clean stale artifacts and start our own server
-        rm -f "$TOP_DIR/fwtpm_nv.bin" /tmp/fwtpm.shm
-        rm -f "$TOP_DIR/rsa_test_blob.raw" "$TOP_DIR/ecc_test_blob.raw" \
-              "$TOP_DIR/keyblob.bin"
-        rm -f "$TOP_DIR"/certs/tpm-*-cert.pem "$TOP_DIR"/certs/tpm-*-cert.csr
-        rm -f "$TOP_DIR"/certs/server-*-cert.pem "$TOP_DIR"/certs/client-*-cert.pem
+        rm -f "$BUILD_DIR/fwtpm_nv.bin" /tmp/fwtpm.shm
+        rm -f "$BUILD_DIR/rsa_test_blob.raw" "$BUILD_DIR/ecc_test_blob.raw" \
+              "$BUILD_DIR/keyblob.bin"
+        rm -f "$BUILD_DIR"/certs/tpm-*-cert.pem "$BUILD_DIR"/certs/tpm-*-cert.csr
+        rm -f "$BUILD_DIR"/certs/server-*-cert.pem "$BUILD_DIR"/certs/client-*-cert.pem
 
         # Kill any orphaned servers from prior crashed runs (intentional pre-flight)
         killall fwtpm_server 2>/dev/null || true
@@ -287,10 +319,10 @@ else
     echo "Using external TPM server on port $FWTPM_PORT"
 
     # Clean stale artifacts (NV state belongs to external server, don't touch it)
-    rm -f "$TOP_DIR/rsa_test_blob.raw" "$TOP_DIR/ecc_test_blob.raw" \
-          "$TOP_DIR/keyblob.bin"
-    rm -f "$TOP_DIR"/certs/tpm-*-cert.pem "$TOP_DIR"/certs/tpm-*-cert.csr
-    rm -f "$TOP_DIR"/certs/server-*-cert.pem "$TOP_DIR"/certs/client-*-cert.pem
+    rm -f "$BUILD_DIR/rsa_test_blob.raw" "$BUILD_DIR/ecc_test_blob.raw" \
+          "$BUILD_DIR/keyblob.bin"
+    rm -f "$BUILD_DIR"/certs/tpm-*-cert.pem "$BUILD_DIR"/certs/tpm-*-cert.csr
+    rm -f "$BUILD_DIR"/certs/server-*-cert.pem "$BUILD_DIR"/certs/client-*-cert.pem
 fi
 
 # --- Run unit tests ---
@@ -298,7 +330,7 @@ fi
 if [ -x "$UNIT_TEST" ]; then
     echo ""
     echo "=== Running unit.test ==="
-    cd "$TOP_DIR"
+    cd "$BUILD_DIR"
     if TPM2_SWTPM_PORT="$FWTPM_PORT" "$UNIT_TEST"; then
         PASS=$((PASS + 1))
         echo "PASS: unit.test"
@@ -319,8 +351,14 @@ if [ $SKIP_EXAMPLES -eq 1 ]; then
 elif [ -x "$RUN_EXAMPLES" ]; then
     echo ""
     echo "=== Running run_examples.sh ==="
-    cd "$TOP_DIR"
+    cd "$BUILD_DIR"
     if WOLFSSL_PATH="$WOLFSSL_PATH" TPM2_SWTPM_PORT="$FWTPM_PORT" \
+        WOLFCRYPT_ENABLE="$WOLFCRYPT_ENABLE" \
+        WOLFCRYPT_RSA="$WOLFCRYPT_RSA" \
+        WOLFCRYPT_ECC="$WOLFCRYPT_ECC" \
+        NO_FILESYSTEM="$NO_FILESYSTEM" \
+        NO_PUBASPRIV="$NO_PUBASPRIV" \
+        WOLFCRYPT_DEFAULT="$WOLFCRYPT_DEFAULT" \
         "$RUN_EXAMPLES"; then
         PASS=$((PASS + 1))
         echo "PASS: run_examples.sh"
