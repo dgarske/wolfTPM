@@ -64,15 +64,6 @@ if [ -z "$M33MU" ] || [ ! -x "$M33MU" ]; then
     exit 1
 fi
 
-# Verify m33mu can actually run (catch missing shared libs)
-if ! "$M33MU" --version > /dev/null 2>&1; then
-    echo "ERROR: m33mu found at $M33MU but failed to execute."
-    echo "  Checking shared library dependencies:"
-    ldd "$M33MU" 2>&1 | grep -i "not found" || echo "  (no missing libraries detected)"
-    echo "  File type: $(file "$M33MU")"
-    exit 1
-fi
-
 echo "=== fwTPM Emulator Test ==="
 echo "  m33mu: $M33MU"
 echo "  TZEN: $TZEN"

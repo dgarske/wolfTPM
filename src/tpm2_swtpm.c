@@ -161,20 +161,12 @@ static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
     struct termios tty;
     speed_t baud;
     int baudInt;
-#ifndef NO_GETENV
-    const char* envDev;
-#endif
 
     if (ctx == NULL) {
         return BAD_FUNC_ARG;
     }
-    /* Allow runtime override via TPM2_SWTPM_HOST env var */
-#ifndef NO_GETENV
-    envDev = getenv("TPM2_SWTPM_HOST");
-    if (envDev != NULL && envDev[0] != '\0') {
-        host = envDev;
-    }
-#endif
+    /* Note: TPM2_SWTPM_HOST env var is checked by caller
+     * (TPM2_SWTPM_SendCommand) before invoking SwTpmConnect */
 
     fd = open(host, O_RDWR | O_NOCTTY);
     if (fd < 0) {

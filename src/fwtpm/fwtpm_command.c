@@ -315,7 +315,9 @@ static int FwGetEntityName(FWTPM_CTX* ctx, TPM_HANDLE handle,
         if (nv != NULL) {
             UINT16 nvNameSz = 0;
             FwComputeNvName(nv, nameBuf, &nvNameSz);
-            return (int)nvNameSz;
+            if (nvNameSz <= nameBufSz) {
+                return (int)nvNameSz;
+            }
         }
     }
 #endif /* !FWTPM_NO_NV */
@@ -3367,7 +3369,12 @@ static TPM_RC FwCmd_Create(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
     if (rc == 0) {
         TPM2_Packet_ParseU16(cmd, &outsideInfoSize);
-        cmd->pos += outsideInfoSize;
+        if (cmd->pos + outsideInfoSize > cmdSize) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
+        else {
+            cmd->pos += outsideInfoSize;
+        }
     }
 
     /* Parse creationPCR (TPML_PCR_SELECTION) - skip */
@@ -4455,7 +4462,7 @@ static TPM_RC FwCmd_Import(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPM2_ForceZero(privKeyDer, FWTPM_MAX_PRIVKEY_DER);
     FWTPM_FREE_BUF(privKeyDer);
     FWTPM_FREE_BUF(pubAreaBuf);
-    TPM2_ForceZero(plainSens, FWTPM_MAX_DATA_BUF);
+    TPM2_ForceZero(plainSens, FWTPM_MAX_SENSITIVE_SIZE);
     FWTPM_FREE_BUF(plainSens);
     TPM2_ForceZero(primeBuf, FWTPM_MAX_DER_SIG_BUF);
     FWTPM_FREE_BUF(primeBuf);
@@ -5392,6 +5399,7 @@ static TPM_RC FwCmd_CreateLoaded(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     TPM2_ForceZero(&userAuth, sizeof(userAuth));
     TPM2_ForceZero(sensData, sizeof(sensData));
+    TPM2_ForceZero(&outPrivate, sizeof(outPrivate));
     TPM2_ForceZero(privKeyDer, FWTPM_MAX_PRIVKEY_DER);
     FWTPM_FREE_BUF(privKeyDer);
     return rc;
@@ -11650,9 +11658,7 @@ static TPM_RC FwCmd_EC_Ephemeral(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
-        UINT32 curveID32;
-        TPM2_Packet_ParseU32(cmd, &curveID32);
-        curveID = (UINT16)curveID32;
+        TPM2_Packet_ParseU16(cmd, &curveID);
 
         wcCurve = FwGetWcCurveId(curveID);
         keySz = FwGetEccKeySize(curveID);

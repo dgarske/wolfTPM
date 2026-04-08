@@ -1621,6 +1621,9 @@ TPM_RC FwImportVerifyAndDecrypt(
      * HMAC-nameAlg(hmacKeyBuf, encSens || name.name) */
     if (rc == 0) {
         wcHmacType = FwGetWcHashType(parentNameAlg);
+        rc = wc_HmacInit(hmacObj, NULL, INVALID_DEVID);
+    }
+    if (rc == 0) {
         rc = wc_HmacSetKey(hmacObj, (int)wcHmacType,
             hmacKeyBuf, (word32)digestSz);
         if (rc == 0) {
@@ -2021,12 +2024,18 @@ int FwRsaComputeCRT(RsaKey* rsaKey)
     }
 
     /* phi = (p-1)(q-1) */
-    mp_sub_d(&rsaKey->p, 1, &pm1);
-    mp_sub_d(&rsaKey->q, 1, &qm1);
-    mp_mul(&pm1, &qm1, &phi);
+    rc = mp_sub_d(&rsaKey->p, 1, &pm1);
+    if (rc == 0) {
+        rc = mp_sub_d(&rsaKey->q, 1, &qm1);
+    }
+    if (rc == 0) {
+        rc = mp_mul(&pm1, &qm1, &phi);
+    }
 
     /* d = e^{-1} mod phi */
-    rc = mp_invmod(&rsaKey->e, &phi, &rsaKey->d);
+    if (rc == 0) {
+        rc = mp_invmod(&rsaKey->e, &phi, &rsaKey->d);
+    }
     if (rc == 0) {
         rc = mp_mod(&rsaKey->d, &pm1, &rsaKey->dP);
     }
@@ -2040,6 +2049,9 @@ int FwRsaComputeCRT(RsaKey* rsaKey)
     mp_forcezero(&pm1);
     mp_forcezero(&qm1);
     mp_forcezero(&phi);
+    mp_clear(&pm1);
+    mp_clear(&qm1);
+    mp_clear(&phi);
 
     if (rc != 0) {
         rc = TPM_RC_FAILURE;

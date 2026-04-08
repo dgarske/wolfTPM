@@ -309,6 +309,9 @@ static int FwNvMarshalPublic(byte* buf, word32* pos, word32 maxSz,
     XMEMCPY(&pub2b.publicArea, pub, sizeof(TPMT_PUBLIC));
     TPM2_Packet_AppendPublic(&pkt, &pub2b);
 
+    if (pkt.pos <= 0 || (word32)pkt.pos > (maxSz - *pos)) {
+        return TPM_RC_FAILURE;
+    }
     *pos += pkt.pos;
     return 0;
 }
@@ -325,6 +328,10 @@ static int FwNvUnmarshalPublic(const byte* buf, word32* pos, word32 maxSz,
     pkt.size = (int)(maxSz - *pos);
 
     TPM2_Packet_ParsePublic(&pkt, &pub2b);
+
+    if (pkt.pos <= 0 || (word32)pkt.pos > (maxSz - *pos)) {
+        return TPM_RC_FAILURE;
+    }
     XMEMCPY(pub, &pub2b.publicArea, sizeof(TPMT_PUBLIC));
 
     *pos += pkt.pos;
@@ -509,7 +516,6 @@ static int FwNvUnmarshalObject(const byte* buf, word32* pos, word32 maxSz,
     UINT16 privSz;
 
     XMEMSET(obj, 0, sizeof(FWTPM_Object));
-    obj->used = 1;
 
     rc = FwNvUnmarshalU32(buf, pos, maxSz, &obj->handle);
     if (rc == 0) {
@@ -523,8 +529,10 @@ static int FwNvUnmarshalObject(const byte* buf, word32* pos, word32 maxSz,
     }
     if (rc == 0) {
         if (privSz > FWTPM_MAX_PRIVKEY_DER) {
-            return TPM_RC_FAILURE;
+            rc = TPM_RC_FAILURE;
         }
+    }
+    if (rc == 0) {
         obj->privKeySize = (int)privSz;
         if (privSz > 0) {
             rc = FwNvUnmarshalBytes(buf, pos, maxSz, obj->privKey, privSz);
@@ -532,6 +540,9 @@ static int FwNvUnmarshalObject(const byte* buf, word32* pos, word32 maxSz,
     }
     if (rc == 0) {
         rc = FwNvUnmarshalName(buf, pos, maxSz, &obj->name);
+    }
+    if (rc == 0) {
+        obj->used = 1;
     }
     return rc;
 }
@@ -571,7 +582,6 @@ static int FwNvUnmarshalPrimaryCache(const byte* buf, word32* pos,
     UINT16 privSz;
 
     XMEMSET(cache, 0, sizeof(FWTPM_PrimaryCache));
-    cache->used = 1;
 
     rc = FwNvUnmarshalU32(buf, pos, maxSz, &cache->hierarchy);
     if (rc == 0) {
@@ -586,12 +596,17 @@ static int FwNvUnmarshalPrimaryCache(const byte* buf, word32* pos,
     }
     if (rc == 0) {
         if (privSz > FWTPM_MAX_PRIVKEY_DER) {
-            return TPM_RC_FAILURE;
+            rc = TPM_RC_FAILURE;
         }
+    }
+    if (rc == 0) {
         cache->privKeySize = (int)privSz;
         if (privSz > 0) {
             rc = FwNvUnmarshalBytes(buf, pos, maxSz, cache->privKey, privSz);
         }
+    }
+    if (rc == 0) {
+        cache->used = 1;
     }
     return rc;
 }
@@ -603,15 +618,15 @@ static int FwNvUnmarshalPrimaryCache(const byte* buf, word32* pos,
 /* Write NV header at offset 0 */
 static int FwNvWriteHeader(FWTPM_CTX* ctx)
 {
-    FWTPM_NV_HEADER hdr;
+    byte hdr[sizeof(FWTPM_NV_HEADER)]; /* 4 x UINT32 = 16 bytes */
     FWTPM_NV_HAL* hal = &ctx->nvHal;
 
-    hdr.magic = FWTPM_NV_MAGIC;
-    hdr.version = FWTPM_NV_VERSION;
-    hdr.writePos = ctx->nvWritePos;
-    hdr.maxSize = hal->maxSize;
+    FwStoreU32LE(hdr + 0,  FWTPM_NV_MAGIC);
+    FwStoreU32LE(hdr + 4,  FWTPM_NV_VERSION);
+    FwStoreU32LE(hdr + 8,  ctx->nvWritePos);
+    FwStoreU32LE(hdr + 12, hal->maxSize);
 
-    return hal->write(hal->ctx, 0, (const byte*)&hdr, sizeof(hdr));
+    return hal->write(hal->ctx, 0, hdr, sizeof(hdr));
 }
 
 /* Append a single TLV entry to the journal */
@@ -960,6 +975,7 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
 {
     int rc;
     FWTPM_NV_HEADER hdr;
+    byte hdrBuf[sizeof(FWTPM_NV_HEADER)];
     FWTPM_NV_HAL* hal;
     word32 pos;
     byte tlvHdr[TLV_HDR_SIZE];
@@ -992,8 +1008,14 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
     }
 
     /* Try to read existing NV header */
-    XMEMSET(&hdr, 0, sizeof(hdr));
-    rc = hal->read(hal->ctx, 0, (byte*)&hdr, sizeof(FWTPM_NV_HEADER));
+    XMEMSET(hdrBuf, 0, sizeof(hdrBuf));
+    rc = hal->read(hal->ctx, 0, hdrBuf, sizeof(hdrBuf));
+    if (rc == TPM_RC_SUCCESS) {
+        hdr.magic    = FwLoadU32LE(hdrBuf + 0);
+        hdr.version  = FwLoadU32LE(hdrBuf + 4);
+        hdr.writePos = FwLoadU32LE(hdrBuf + 8);
+        hdr.maxSize  = FwLoadU32LE(hdrBuf + 12);
+    }
 
     if (rc == TPM_RC_SUCCESS &&
         hdr.magic == FWTPM_NV_MAGIC &&

@@ -43,6 +43,7 @@
 #endif
 
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <semaphore.h>
 
 /* Static client context (one connection per process).
@@ -54,6 +55,7 @@ static int gFwtpmClientInit = 0;
 int FWTPM_TIS_ClientConnect(FWTPM_TIS_CLIENT_CTX* client)
 {
     int fd;
+    struct stat st;
     FWTPM_TIS_REGS* shm;
     sem_t* semCmd;
     sem_t* semRsp;
@@ -72,6 +74,17 @@ int FWTPM_TIS_ClientConnect(FWTPM_TIS_CLIENT_CTX* client)
         printf("fwTPM HAL: open(%s) failed: %d (%s)\n",
             FWTPM_TIS_SHM_PATH, errno, strerror(errno));
     #endif
+        return TPM_RC_FAILURE;
+    }
+
+    /* Verify file is large enough before mapping */
+    if (fstat(fd, &st) != 0 ||
+            st.st_size < (off_t)sizeof(FWTPM_TIS_REGS)) {
+    #ifdef DEBUG_WOLFTPM
+        printf("fwTPM HAL: shm file too small (expected %lu)\n",
+            (unsigned long)sizeof(FWTPM_TIS_REGS));
+    #endif
+        close(fd);
         return TPM_RC_FAILURE;
     }
 
@@ -178,12 +191,16 @@ int TPM2_IoCb_FwTPM(TPM2_CTX* ctx, int isRead, word32 addr,
      * Note: thread safety is provided by the TPM context lock in tpm2_tis.c
      * (TPM2_AcquireLock), so no additional mutex is needed here. */
     if (!gFwtpmClientInit) {
+        static int atexitRegistered = 0;
         int rc = FWTPM_TIS_ClientConnect(client);
         if (rc != TPM_RC_SUCCESS) {
             return rc;
         }
         gFwtpmClientInit = 1;
-        atexit(FWTPM_TIS_ClientCleanup);
+        if (!atexitRegistered) {
+            atexit(FWTPM_TIS_ClientCleanup);
+            atexitRegistered = 1;
+        }
     }
 
     shm = client->shm;

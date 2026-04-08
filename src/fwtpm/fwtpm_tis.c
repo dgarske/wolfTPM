@@ -264,6 +264,9 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
                 if (len > avail) {
                     len = avail;
                 }
+                if (len > sizeof(regs->reg_data)) {
+                    len = (UINT32)sizeof(regs->reg_data);
+                }
                 for (i = 0; i < len; i++) {
                     regs->reg_data[i] = regs->rsp_buf[regs->fifo_read_pos++];
                 }

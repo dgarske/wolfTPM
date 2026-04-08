@@ -263,7 +263,10 @@ void TPM2_Packet_ParseU16Buf(TPM2_Packet* packet, UINT16* size, byte* buf,
 
     TPM2_Packet_ParseU16(packet, &wireSize);
     /* Clamp to remaining packet bytes to prevent pos from going past size */
-    if (packet && wireSize > (UINT16)(packet->size - packet->pos)) {
+    if (packet && (packet->pos >= packet->size)) {
+        wireSize = 0;
+    }
+    else if (packet && wireSize > (UINT16)(packet->size - packet->pos)) {
         wireSize = (UINT16)(packet->size - packet->pos);
     }
     copySz = wireSize;
@@ -763,7 +766,7 @@ TPM_RC TPM2_Packet_ParseSensitiveCreate(TPM2_Packet* packet, int maxSize,
 {
     TPM_RC rc = TPM_RC_SUCCESS;
     UINT16 inSensSize;
-    UINT16 dataSz;
+    UINT16 dataSz = 0;
     int sensStartPos;
 
     if (packet->pos + 2 > maxSize) {
