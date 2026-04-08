@@ -45,7 +45,9 @@
 #include <sys/mman.h>
 #include <semaphore.h>
 
-/* Static client context (one connection per process) */
+/* Static client context (one connection per process).
+ * By design, only one fwTPM server instance is connected per process.
+ * Thread safety is provided by TPM2_AcquireLock in tpm2_tis.c. */
 static FWTPM_TIS_CLIENT_CTX gFwtpmClient;
 static int gFwtpmClientInit = 0;
 

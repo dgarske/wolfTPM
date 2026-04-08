@@ -816,6 +816,11 @@ TPM_RC TPM2_Cleanup(TPM2_CTX* ctx)
         close(ctx->fd);
 #endif
 
+#ifdef WOLFTPM_SWTPM_UART
+    /* Close the persistent UART connection */
+    TPM2_SwtpmCloseUART(ctx);
+#endif
+
     return TPM_RC_SUCCESS;
 }
 

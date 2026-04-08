@@ -84,6 +84,8 @@ check_wolfssl_options() {
 }
 
 ensure_wolfssl() {
+    local src
+
     # 1. Explicit WOLFSSL_PATH from environment
     if [ -n "$WOLFSSL_PATH" ] && check_wolfssl_options "$WOLFSSL_PATH"; then
         echo "  wolfSSL: using $WOLFSSL_PATH"
@@ -91,35 +93,26 @@ ensure_wolfssl() {
     fi
 
     # 2. Reuse prior /tmp build
-    local src="/tmp/wolfssl-fwtpm"
+    src="/tmp/wolfssl-fwtpm"
     if [ -d "$src" ] && check_wolfssl_options "$src"; then
         WOLFSSL_PATH="$src"
         echo "  wolfSSL: using $WOLFSSL_PATH"
         return 0
     fi
 
-    # 3. Clone and build to /tmp (no sudo)
-    echo "  Building wolfSSL to $src"
-    if [ ! -d "$src/.git" ]; then
-        rm -rf "$src"
-        git clone --depth 1 https://github.com/wolfssl/wolfssl.git "$src" \
-            > /tmp/wolfssl-fwtpm-clone.log 2>&1 || return 1
-    fi
-    if ! check_wolfssl_options "$src"; then
-        (cd "$src" && \
-            ./autogen.sh > /dev/null 2>&1 && \
-            ./configure \
-                --enable-wolftpm --enable-pkcallbacks --enable-keygen \
-                CFLAGS="-DWC_RSA_NO_PADDING" \
-                > /tmp/wolfssl-fwtpm-configure.log 2>&1 && \
-            make > /tmp/wolfssl-fwtpm-build.log 2>&1) || {
-            echo "  wolfSSL build failed -- see /tmp/wolfssl-fwtpm-*.log"
-            return 1
-        }
-    fi
-    WOLFSSL_PATH="$src"
-    echo "  wolfSSL: built at $WOLFSSL_PATH"
-    return 0
+    # 3. Check system install paths
+    for src in /usr/local /usr /opt/homebrew /opt/local; do
+        if check_wolfssl_options "$src"; then
+            WOLFSSL_PATH="$src"
+            echo "  wolfSSL: using system install at $WOLFSSL_PATH"
+            return 0
+        fi
+    done
+
+    echo "  wolfSSL not available with required options."
+    echo "  Set WOLFSSL_PATH or install wolfSSL system-wide."
+    echo "  Skipping TLS-dependent tests."
+    return 1
 }
 
 # --- Cleanup ---
@@ -260,9 +253,16 @@ if [ $IS_FWTPM_MODE -eq 1 ]; then
         rm -f "$BUILD_DIR"/certs/tpm-*-cert.pem "$BUILD_DIR"/certs/tpm-*-cert.csr
         rm -f "$BUILD_DIR"/certs/server-*-cert.pem "$BUILD_DIR"/certs/client-*-cert.pem
 
-        # Kill any orphaned servers from prior crashed runs (intentional pre-flight)
-        killall fwtpm_server 2>/dev/null || true
-        sleep 0.3
+        # Clean up any stale PID files from prior crashed runs
+        for stale_pid_file in /tmp/fwtpm_check_*.pid; do
+            [ -f "$stale_pid_file" ] || continue
+            stale_pid="$(cat "$stale_pid_file" 2>/dev/null)"
+            if [ -n "$stale_pid" ] && kill -0 "$stale_pid" 2>/dev/null; then
+                kill "$stale_pid" 2>/dev/null
+                sleep 0.3
+            fi
+            rm -f "$stale_pid_file"
+        done
 
         if [ $HAS_GETENV -eq 1 ] && [ $IS_SWTPM_MODE -eq 1 ]; then
             FWTPM_PORT=$(pick_available_port)

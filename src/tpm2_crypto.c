@@ -396,7 +396,8 @@ int TPM2_HmacCompute(
     int hashType;
     int dSz;
 
-    if (digest == NULL || (data == NULL && dataSz > 0)) {
+    if (digest == NULL || (key == NULL && keySz > 0) ||
+        (data == NULL && dataSz > 0)) {
         return BAD_FUNC_ARG;
     }
 

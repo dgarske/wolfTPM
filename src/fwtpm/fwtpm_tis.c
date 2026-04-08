@@ -309,6 +309,12 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
                 break;
         }
 
+        /* Clamp len for scalar registers (max 4 bytes) and zero-fill
+         * to prevent stale data in reg_data from being read back */
+        if (len > 4) {
+            len = 4;
+        }
+        XMEMSET(regs->reg_data, 0, len);
         /* Pack value into reg_data (little-endian, matching TIS spec) */
         if (len >= 1) regs->reg_data[0] = (BYTE)(val);
         if (len >= 2) regs->reg_data[1] = (BYTE)(val >> 8);

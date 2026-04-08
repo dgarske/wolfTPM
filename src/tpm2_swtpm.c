@@ -352,7 +352,8 @@ static TPM_RC SwTpmDisconnect(TPM2_CTX* ctx)
 
 #ifdef WOLFTPM_SWTPM_UART
     /* UART: keep the port open for the next command.
-     * The SESSION_END tells the server the command sequence is done. */
+     * The SESSION_END tells the server the command sequence is done.
+     * Final cleanup of the UART FD is handled in TPM2_SwtpmCloseUART. */
     (void)ctx;
 #else
     if (0 != close(ctx->tcpCtx.fd)) {
@@ -479,4 +480,15 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 
     return rc;
 }
+
+#ifdef WOLFTPM_SWTPM_UART
+/* Close the persistent UART FD during final TPM context cleanup */
+void TPM2_SwtpmCloseUART(TPM2_CTX* ctx)
+{
+    if (ctx != NULL && ctx->tcpCtx.fd >= 0) {
+        close(ctx->tcpCtx.fd);
+        ctx->tcpCtx.fd = -1;
+    }
+}
+#endif
 #endif /* WOLFTPM_SWTPM */
