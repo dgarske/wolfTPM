@@ -43,7 +43,9 @@ wait_for_ready() {
 wait_for_port() {
     local port="$1" timeout="${2:-500}" elapsed=0
     while [ $elapsed -lt $timeout ]; do
-        if ss -tln 2>/dev/null | grep -q ":${port} "; then
+        if command -v ss >/dev/null 2>&1; then
+            ss -tln 2>/dev/null | grep -q ":${port} " && return 0
+        elif netstat -tln 2>/dev/null | grep -q ":${port} "; then
             return 0
         fi
         sleep 0.01

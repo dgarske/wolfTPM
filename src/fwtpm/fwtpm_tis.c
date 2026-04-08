@@ -78,10 +78,8 @@ static void TisHandleRegAccess(FWTPM_CTX* ctx, FWTPM_TIS_REGS* regs)
         UINT32 val = 0;
         if (len >= 1) val = regs->reg_data[0];
         if (len >= 2) val |= (UINT32)regs->reg_data[1] << 8;
-        if (len >= 4) {
-            val |= (UINT32)regs->reg_data[2] << 16;
-            val |= (UINT32)regs->reg_data[3] << 24;
-        }
+        if (len >= 3) val |= (UINT32)regs->reg_data[2] << 16;
+        if (len >= 4) val |= (UINT32)regs->reg_data[3] << 24;
 
         switch (offset) {
             case FWTPM_TIS_ACCESS:

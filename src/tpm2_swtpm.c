@@ -194,9 +194,15 @@ static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
         case 38400:  baud = B38400; break;
         case 57600:  baud = B57600; break;
         case 115200: baud = B115200; break;
+    #ifdef B230400
         case 230400: baud = B230400; break;
+    #endif
+    #ifdef B460800
         case 460800: baud = B460800; break;
+    #endif
+    #ifdef B921600
         case 921600: baud = B921600; break;
+    #endif
         default:     baud = B115200; break;
     }
     cfsetospeed(&tty, baud);
