@@ -92,12 +92,32 @@ int FWTPM_Init(FWTPM_CTX* ctx)
     }
 
     /* Initialize NV storage - loads existing state or creates fresh seeds */
+#ifndef FWTPM_NO_NV
     rc = FWTPM_NV_Init(ctx);
     if (rc != 0) {
         wc_FreeRng(&ctx->rng);
         wolfCrypt_Cleanup();
         return rc;
     }
+#else
+    /* No NV: generate ephemeral seeds (lost on reset) */
+    rc = wc_RNG_GenerateBlock(&ctx->rng, ctx->ownerSeed, FWTPM_SEED_SIZE);
+    if (rc == 0)
+        rc = wc_RNG_GenerateBlock(&ctx->rng, ctx->endorsementSeed,
+            FWTPM_SEED_SIZE);
+    if (rc == 0)
+        rc = wc_RNG_GenerateBlock(&ctx->rng, ctx->platformSeed,
+            FWTPM_SEED_SIZE);
+    if (rc == 0)
+        rc = wc_RNG_GenerateBlock(&ctx->rng, ctx->nullSeed,
+            FWTPM_SEED_SIZE);
+    if (rc != 0) {
+        wc_FreeRng(&ctx->rng);
+        wolfCrypt_Cleanup();
+        return TPM_RC_FAILURE;
+    }
+    ctx->pcrAllocatedBanks = FWTPM_PCR_ALLOC_DEFAULT;
+#endif
 
     return rc;
 }
@@ -111,7 +131,11 @@ int FWTPM_Cleanup(FWTPM_CTX* ctx)
     }
 
     /* Save NV state before cleanup */
+#ifndef FWTPM_NO_NV
     rc = FWTPM_NV_Save(ctx);
+#else
+    rc = TPM_RC_SUCCESS;
+#endif
 
     wc_FreeRng(&ctx->rng);
     wolfCrypt_Cleanup();

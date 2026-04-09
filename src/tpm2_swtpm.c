@@ -210,7 +210,10 @@ static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
 
     /* 8N1: 8 data bits, no parity, 1 stop bit */
     tty.c_cflag = (tty.c_cflag & ~CSIZE) | CS8;
-    tty.c_cflag &= ~(PARENB | PARODD | CSTOPB | CRTSCTS);
+    tty.c_cflag &= ~(PARENB | PARODD | CSTOPB);
+#ifdef CRTSCTS
+    tty.c_cflag &= ~CRTSCTS;
+#endif
     tty.c_cflag |= (CLOCAL | CREAD);
 
     /* Raw mode: no special input/output processing */

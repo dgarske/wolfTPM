@@ -450,9 +450,11 @@ run_tpm_tls_client() { # Usage: run_tpm_tls_client [ecc/rsa] [tpmargs] [tlsversi
     pushd $WOLFSSL_PATH >> $TPMPWD/run.out 2>&1
     echo -e "./examples/server/server -v $3 -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem -R $READY_FILE"
     ./examples/server/server -v $3 -p $port -w -g -A ./certs/tpm-ca-$1-cert.pem -R "$READY_FILE" >> $TPMPWD/run.out 2>&1 &
+    SERVER_PID=$!
     popd >> $TPMPWD/run.out 2>&1
     if ! wait_for_ready "$READY_FILE" 500; then
         echo -e "wolfSSL server failed to start for $1 $2"
+        kill $SERVER_PID 2>/dev/null
         rm -f "$READY_FILE"
         exit 1
     fi
@@ -470,8 +472,10 @@ run_tpm_tls_server() { # Usage: run_tpm_tls_server [ecc/rsa] [tpmargs] [tlsversi
 
     echo -e "./examples/tls/tls_server -p=$port -$1 $2"
     ./examples/tls/tls_server -p=$port -$1 $2 >> $TPMPWD/run.out 2>&1 &
+    SERVER_PID=$!
     if ! wait_for_port "$port" 500; then
         echo -e "TPM TLS server failed to start on port $port for $1 $2"
+        kill $SERVER_PID 2>/dev/null
         exit 1
     fi
     pushd $WOLFSSL_PATH >> $TPMPWD/run.out 2>&1

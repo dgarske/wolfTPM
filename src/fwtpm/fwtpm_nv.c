@@ -1123,7 +1123,8 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
         rc = FWTPM_NV_Save(ctx);
     #ifdef DEBUG_WOLFTPM
         if (rc != TPM_RC_SUCCESS) {
-            printf("fwTPM: Warning: Failed to save initial NV state\n");
+            printf("fwTPM: Warning: Failed to save initial NV state (%d)\n",
+                rc);
         }
     #endif
     }

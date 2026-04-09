@@ -29,17 +29,34 @@ SKIP_EXAMPLES=0
 # --- Helpers ---
 
 # Wait for a TCP port to be listening
-# Uses ss to check without connecting (nc -z would consume the accept slot)
+# Uses ss/netstat to check without connecting (nc -z would consume the accept slot)
 wait_for_port() {
     local port="$1" timeout="${2:-500}" elapsed=0
     while [ $elapsed -lt $timeout ]; do
-        if ss -tln 2>/dev/null | grep -q ":${port} "; then
+        if command -v ss >/dev/null 2>&1; then
+            ss -tln 2>/dev/null | grep -q ":${port} " && return 0
+        elif netstat -tln 2>/dev/null | grep -q ":${port} "; then
             return 0
         fi
         sleep 0.01
         elapsed=$((elapsed + 1))
     done
     return 1
+}
+
+# Check if a port is in use (returns 0 if port is in use)
+check_port_in_use() {
+    local port="$1"
+    if command -v nc >/dev/null 2>&1; then
+        nc -z localhost "$port" 2>/dev/null
+        return $?
+    elif command -v ss >/dev/null 2>&1; then
+        ss -tln 2>/dev/null | grep -q ":${port} "
+        return $?
+    elif netstat -tln 2>/dev/null | grep -q ":${port} "; then
+        return 0
+    fi
+    return 1  # no tool available, assume in use to be safe
 }
 
 # Pick an available random port (returns port on stdout)
@@ -51,7 +68,7 @@ pick_available_port() {
         else
             port=$(( (RANDOM % 55000) + 10000 ))
         fi
-        if ! nc -z localhost "$port" 2>/dev/null; then
+        if ! check_port_in_use "$port"; then
             echo "$port"
             return 0
         fi
@@ -240,7 +257,7 @@ if [ $IS_FWTPM_MODE -eq 1 ]; then
     # --- fwTPM mode: we manage the server lifecycle ---
 
     # Check if a server is already running (e.g. started by CI)
-    if [ $IS_SWTPM_MODE -eq 1 ] && ss -tln 2>/dev/null | grep -q ":${FWTPM_PORT} "; then
+    if [ $IS_SWTPM_MODE -eq 1 ] && check_port_in_use "$FWTPM_PORT"; then
         echo "Server already running on port $FWTPM_PORT"
         if [ $HAS_GETENV -eq 1 ]; then
             export TPM2_SWTPM_PORT="$FWTPM_PORT"
@@ -312,7 +329,7 @@ else
         export TPM2_SWTPM_PORT="$FWTPM_PORT"
     fi
 
-    if ! ss -tln 2>/dev/null | grep -q ":${FWTPM_PORT} "; then
+    if ! check_port_in_use "$FWTPM_PORT"; then
         echo "No TPM server on port $FWTPM_PORT, skipping (start one with: tpm_server &)"
         exit 77
     fi
