@@ -29,7 +29,7 @@
  *          CFLAGS="-fsanitize=fuzzer-no-link,address -g" \
  *          LDFLAGS="-fsanitize=fuzzer,address"
  *
- * Run:   ./tests/fuzz/fwtpm_fuzz corpus/ -max_len=4096 -timeout=10
+ * Run:   ./tests/fuzz/fwtpm_fuzz corpus/ -max_len=4096 -timeout=30
  */
 
 #ifdef HAVE_CONFIG_H

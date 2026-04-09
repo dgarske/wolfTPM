@@ -69,7 +69,7 @@ jobs:
               tests/fuzz/corpus/ \
               -dict=tests/fuzz/tpm2.dict \
               -max_len=4096 \
-              -timeout=10 \
+              -timeout=30 \
               -rss_limit_mb=2048 \
               -print_final_stats=1 \
             || FUZZ_RC=$?

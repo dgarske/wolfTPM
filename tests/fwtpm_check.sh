@@ -56,7 +56,7 @@ check_port_in_use() {
     elif netstat -tln 2>/dev/null | grep -q ":${port} "; then
         return 0
     fi
-    return 1  # no tool available, assume in use to be safe
+    return 1  # no tool available, skip this port
 }
 
 # Pick an available random port (returns port on stdout)

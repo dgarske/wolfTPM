@@ -181,6 +181,7 @@ int TPM2_KDFe_ex(
     int hashTypeInt;
     enum wc_HashType hashType;
     wc_HashAlg hash_ctx;
+    int hashInited = 0;
     word32 counter = 0;
     int hLen, copyLen, lLen = 0;
     byte uint32Buf[sizeof(UINT32)];
@@ -210,6 +211,7 @@ int TPM2_KDFe_ex(
     if (ret != 0) {
         return ret;
     }
+    hashInited = 1;
 
     for (pos = 0; pos < keySz; pos += hLen) {
         counter++;
@@ -219,10 +221,12 @@ int TPM2_KDFe_ex(
          * computed independently: H(counter || Z || label || partyU || partyV) */
         if (pos > 0) {
             wc_HashFree(&hash_ctx, hashType);
+            hashInited = 0;
             ret = wc_HashInit(&hash_ctx, hashType);
             if (ret != 0) {
                 break;
             }
+            hashInited = 1;
         }
 
         /* counter (big-endian) */
@@ -259,7 +263,9 @@ int TPM2_KDFe_ex(
         XMEMCPY(key + pos, hash, copyLen);
     }
 
-    wc_HashFree(&hash_ctx, hashType);
+    if (hashInited) {
+        wc_HashFree(&hash_ctx, hashType);
+    }
     TPM2_ForceZero(hash, sizeof(hash));
 
     if (ret == 0) {

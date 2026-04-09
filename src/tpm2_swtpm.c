@@ -58,8 +58,10 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #endif
-#ifdef WOLFTPM_SWTPM_UART
+#ifndef NO_GETENV
 #include <stdlib.h>
+#endif
+#ifdef WOLFTPM_SWTPM_UART
 #include <fcntl.h>
 #include <termios.h>
 #endif
