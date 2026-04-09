@@ -224,10 +224,11 @@ static TPM_RC SwTpmConnect(TPM2_CTX* ctx, const char* host, const char* port)
     tty.c_oflag &= ~OPOST;
     tty.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
 
-    /* Blocking read with timeout.
+    /* Read with overall timeout.
      * RSA key generation on embedded targets can take 10+ seconds,
-     * so use a generous timeout. */
-    tty.c_cc[VMIN] = 1;    /* block until at least 1 byte */
+     * so use a generous timeout. With VMIN=0 and VTIME>0, read()
+     * returns after the timeout even if no byte is received. */
+    tty.c_cc[VMIN] = 0;    /* allow timeout without requiring first byte */
     tty.c_cc[VTIME] = 200; /* 20 second timeout (tenths of seconds) */
 
     if (tcsetattr(fd, TCSANOW, &tty) != 0) {

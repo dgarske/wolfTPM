@@ -45,8 +45,8 @@ wait_for_port() {
     while [ $elapsed -lt $timeout ]; do
         if command -v ss >/dev/null 2>&1; then
             ss -tln 2>/dev/null | grep -q ":${port} " && return 0
-        elif netstat -tln 2>/dev/null | grep -q ":${port} "; then
-            return 0
+        elif command -v netstat >/dev/null 2>&1; then
+            netstat -tln 2>/dev/null | grep -q ":${port} " && return 0
         fi
         sleep 0.01
         elapsed=$((elapsed + 1))

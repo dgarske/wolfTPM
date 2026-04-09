@@ -42,7 +42,7 @@ jobs:
         run: |
           ./autogen.sh
           CC=clang ./configure --enable-wolftpm --enable-pkcallbacks --enable-keygen \
-            CFLAGS="-fsanitize=fuzzer-no-link,address -fno-omit-frame-pointer -g -O1" \
+            CFLAGS="-fsanitize=fuzzer-no-link,address -fno-omit-frame-pointer -g -O1 -DWC_RSA_NO_PADDING" \
             LDFLAGS="-fsanitize=address"
           make -j$(nproc)
           sudo make install
