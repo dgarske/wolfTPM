@@ -38,6 +38,15 @@ jobs:
             wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
             build_only: false
 
+          # fwTPM append-only NV journal (write-once flash). Runs make check so
+          # the append-only unit test (granule buffering, MAC checkpoints,
+          # torn-commit recovery, compaction) actually executes.
+          - name: fwtpm-nv-appendonly
+            os: ubuntu-latest
+            wolftpm_config: --enable-fwtpm --enable-swtpm --enable-fwtpm-nv-appendonly --enable-debug
+            wolfssl_config: --enable-wolftpm --enable-pkcallbacks --enable-keygen
+            build_only: false
+
           # v1.85 PQC: full make check + pqc_mssim_e2e.sh + tpm2-tools
           # Highest-leverage entry — exercises wrapper unit tests
           # (tests/unit_tests.c v1.85 cases) + handler unit tests

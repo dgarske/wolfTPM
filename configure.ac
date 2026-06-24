@@ -415,6 +415,21 @@ then
     fi
 fi
 
+# Append-only NV journal for write-once flash fwTPM ports (opt-in)
+AC_ARG_ENABLE([fwtpm-nv-appendonly],
+    [AS_HELP_STRING([--enable-fwtpm-nv-appendonly],[Enable the append-only NV journal mode for write-once flash fwTPM ports (default: disabled)])],
+    [ ENABLED_FWTPM_NV_APPENDONLY=$enableval ],
+    [ ENABLED_FWTPM_NV_APPENDONLY=no ]
+    )
+if test "x$ENABLED_FWTPM_NV_APPENDONLY" = "xyes"
+then
+    if test "x$ENABLED_FWTPM" != "xyes"
+    then
+        AC_MSG_WARN([--enable-fwtpm-nv-appendonly has no effect without --enable-fwtpm])
+    fi
+    AM_CFLAGS="$AM_CFLAGS -DWOLFTPM_FWTPM_NV_APPEND_ONLY"
+fi
+
 # Fuzz target
 AC_ARG_ENABLE([fuzz],
     [AS_HELP_STRING([--enable-fuzz],[Enable fuzz targets (default: disabled)])],
@@ -1131,6 +1146,7 @@ echo "   * Nations Tech NS350:        $ENABLED_NATIONS"
 echo "   * fwTPM Server:              $ENABLED_FWTPM"
 echo "   * fwTPM Only (no client):    $ENABLED_FWTPM_ONLY"
 echo "   * fwTPM TIS/SHM:             $ENABLED_FWTPM_TIS"
+echo "   * fwTPM NV append-only:      $ENABLED_FWTPM_NV_APPENDONLY"
 echo "   * Runtime Module Detection:  $ENABLED_AUTODETECT"
 echo "   * Firmware Upgrade Support:  $ENABLED_FIRMWARE"
 echo "   * SPDM Support:              $ENABLED_SPDM"

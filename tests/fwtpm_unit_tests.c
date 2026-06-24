@@ -9197,6 +9197,223 @@ static void test_fwtpm_nv_sethal_mock(void)
 #endif
 }
 
+#if defined(WOLFTPM_FWTPM_NV_APPEND_ONLY) && !defined(FWTPM_NO_NV)
+/* RAM-backed write-once flash on a plain FWTPM_NV_HAL. flash_write enforces
+ * aligned, into-erased programs so any in-place rewrite or double-program is
+ * caught. */
+#define FNV_SIZE    (64 * 1024)
+#define FNV_SECTOR  4096
+#define FNV_PROG    16
+static byte gFlashNv[FNV_SIZE];
+static int  gFlashEraseCnt;
+static int  gFlashProgCnt;
+
+static int flash_read(void* c, word32 off, byte* buf, word32 sz)
+{
+    (void)c;
+    if ((size_t)off + sz > FNV_SIZE) {
+        return -1;
+    }
+    XMEMCPY(buf, gFlashNv + off, sz);
+    return 0;
+}
+static int flash_erase(void* c, word32 off, word32 sz)
+{
+    (void)c;
+    if ((off % FNV_SECTOR) != 0 || (sz % FNV_SECTOR) != 0 || sz == 0 ||
+            (size_t)off + sz > FNV_SIZE) {
+        return -1;
+    }
+    XMEMSET(gFlashNv + off, 0xFF, sz);
+    gFlashEraseCnt++;
+    return 0;
+}
+static int flash_write(void* c, word32 off, const byte* buf, word32 sz)
+{
+    word32 i;
+    (void)c;
+    /* Append-only contract: aligned program granules into erased cells. */
+    if ((off % FNV_PROG) != 0 || (sz % FNV_PROG) != 0 ||
+            (size_t)off + sz > FNV_SIZE) {
+        return -1;
+    }
+    for (i = 0; i < sz; i++) {
+        if (gFlashNv[off + i] != 0xFF) {
+            return -1; /* write-once violation */
+        }
+    }
+    XMEMCPY(gFlashNv + off, buf, sz);
+    gFlashProgCnt += sz / FNV_PROG;
+    return 0;
+}
+static int flash_key(void* c, byte* key, word32* keySz)
+{
+    (void)c;
+    XMEMSET(key, 0xA5, 32);
+    *keySz = 32;
+    return 0;
+}
+/* Simulate a (re)boot: register the native read/write/erase HAL (opt in to
+ * append-only via flags + writeAlign) over the persistent flash buffer, then
+ * start the TPM. */
+static int flash_boot(FWTPM_CTX* ctx, FWTPM_NV_HAL* hal, word32 align,
+    int useKey)
+{
+    int rc;
+    XMEMSET(hal, 0, sizeof(*hal));
+    hal->read = flash_read;
+    hal->write = flash_write;
+    hal->erase = flash_erase;
+    hal->ctx = NULL;
+    hal->maxSize = FNV_SIZE;
+    hal->appendOnly = 1;
+    hal->writeAlign = align;
+    if (useKey) {
+        hal->get_integrity_key = flash_key;
+    }
+    XMEMSET(ctx, 0, sizeof(*ctx));
+    rc = FWTPM_NV_SetHAL(ctx, hal);
+    if (rc != 0) {
+        return rc;
+    }
+    return FWTPM_Init(ctx);
+}
+#endif /* WOLFTPM_FWTPM_NV_APPEND_ONLY && !FWTPM_NO_NV */
+
+static void test_fwtpm_nv_flash_append_only(void)
+{
+#if defined(WOLFTPM_FWTPM_NV_APPEND_ONLY) && !defined(FWTPM_NO_NV)
+    FWTPM_CTX ctx;
+    FWTPM_NV_HAL hal;
+    byte savedSeed[FWTPM_SEED_SIZE];
+    byte bogus[FNV_PROG];
+    word32 tornAt;
+    int rc;
+    int eraseBase;
+    int progBase;
+    int i;
+
+    /* Start from fully erased flash. */
+    XMEMSET(gFlashNv, 0xFF, sizeof(gFlashNv));
+    gFlashEraseCnt = 0;
+    gFlashProgCnt = 0;
+
+    /* Boot 1: fresh init writes seeds via a compaction (erase + program). */
+    rc = flash_boot(&ctx, &hal, FNV_PROG, 1);
+    AssertIntEQ(rc, 0);
+    XMEMCPY(savedSeed, ctx.ownerSeed, FWTPM_SEED_SIZE);
+    AssertIntGT(gFlashProgCnt, 0);
+    AssertIntGT(gFlashEraseCnt, 0);
+
+    /* Targeted appends must NOT erase: append-only into pre-erased space. */
+    eraseBase = gFlashEraseCnt;
+    progBase = gFlashProgCnt;
+    ctx.disableClear = 1;
+    rc = FWTPM_NV_SaveFlags(&ctx);
+    AssertIntEQ(rc, 0);
+    rc = FWTPM_NV_SaveFlags(&ctx);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(gFlashEraseCnt, eraseBase);   /* no erase on append */
+    AssertIntGT(gFlashProgCnt, progBase);     /* but did program */
+    /* FWTPM_Cleanup compacts (erase + dense rewrite), so the next-append
+     * offset is only known after a reload. */
+    FWTPM_Cleanup(&ctx);
+
+    /* Boot 2: state replays from the journal. Capture the current next-append
+     * offset for the torn-commit simulation, then abandon this context WITHOUT
+     * the compacting cleanup so the on-flash layout (and that offset) stays
+     * valid. */
+    rc = flash_boot(&ctx, &hal, FNV_PROG, 1);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(XMEMCMP(ctx.ownerSeed, savedSeed, FWTPM_SEED_SIZE), 0);
+    AssertIntEQ((int)ctx.disableClear, 1);
+    tornAt = ctx.nvWritePos;                  /* next (aligned) append offset */
+    wc_FreeRng(&ctx.rng);                     /* drop ctx without a save */
+
+    /* Simulate a torn trailing commit: program bytes into the next erased
+     * granule with no valid checkpoint following. */
+    XMEMSET(bogus, 0x5A, sizeof(bogus));
+    rc = flash_write(NULL, tornAt, bogus, FNV_PROG);
+    AssertIntEQ(rc, 0);
+
+    /* Boot 3: the torn tail is ignored, committed state survives, and the
+     * recovery path rewrites cleanly (an erase happens). */
+    eraseBase = gFlashEraseCnt;
+    rc = flash_boot(&ctx, &hal, FNV_PROG, 1);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(XMEMCMP(ctx.ownerSeed, savedSeed, FWTPM_SEED_SIZE), 0);
+    AssertIntEQ((int)ctx.disableClear, 1);
+    AssertIntGT(gFlashEraseCnt, eraseBase);   /* recovery compaction erased */
+    FWTPM_Cleanup(&ctx);
+
+    /* Tamper: flip a committed byte after the header. The checkpoint MAC must
+     * fail, so the journal is discarded and fresh seeds generated. */
+    gFlashNv[sizeof(FWTPM_NV_HEADER) + 1] ^= 0xFF;
+    rc = flash_boot(&ctx, &hal, FNV_PROG, 1);
+    AssertIntEQ(rc, 0);
+    AssertIntNE(XMEMCMP(ctx.ownerSeed, savedSeed, FWTPM_SEED_SIZE), 0);
+    FWTPM_Cleanup(&ctx);
+
+    /* writeAlign=32: header (16 B) and first entry share a program granule. */
+    XMEMSET(gFlashNv, 0xFF, sizeof(gFlashNv));
+    gFlashEraseCnt = 0; gFlashProgCnt = 0;
+    rc = flash_boot(&ctx, &hal, 32, 1);
+    AssertIntEQ(rc, 0);
+    XMEMCPY(savedSeed, ctx.ownerSeed, FWTPM_SEED_SIZE);
+    ctx.disableClear = 1;
+    rc = FWTPM_NV_SaveFlags(&ctx);
+    AssertIntEQ(rc, 0);
+    FWTPM_Cleanup(&ctx);
+    rc = flash_boot(&ctx, &hal, 32, 1);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(XMEMCMP(ctx.ownerSeed, savedSeed, FWTPM_SEED_SIZE), 0);
+    AssertIntEQ((int)ctx.disableClear, 1);
+    FWTPM_Cleanup(&ctx);
+
+    /* No integrity key: load follows the "trust the scan" path. */
+    XMEMSET(gFlashNv, 0xFF, sizeof(gFlashNv));
+    gFlashEraseCnt = 0; gFlashProgCnt = 0;
+    rc = flash_boot(&ctx, &hal, FNV_PROG, 0);
+    AssertIntEQ(rc, 0);
+    XMEMCPY(savedSeed, ctx.ownerSeed, FWTPM_SEED_SIZE);
+    ctx.disableClear = 1;
+    rc = FWTPM_NV_SaveFlags(&ctx);
+    AssertIntEQ(rc, 0);
+    FWTPM_Cleanup(&ctx);
+    rc = flash_boot(&ctx, &hal, FNV_PROG, 0);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(XMEMCMP(ctx.ownerSeed, savedSeed, FWTPM_SEED_SIZE), 0);
+    AssertIntEQ((int)ctx.disableClear, 1);
+    FWTPM_Cleanup(&ctx);
+
+    /* Fill the journal to force an in-place append-only compaction, then
+     * confirm the latest state survives a reload. */
+    XMEMSET(gFlashNv, 0xFF, sizeof(gFlashNv));
+    gFlashEraseCnt = 0; gFlashProgCnt = 0;
+    rc = flash_boot(&ctx, &hal, FNV_PROG, 1);
+    AssertIntEQ(rc, 0);
+    XMEMCPY(savedSeed, ctx.ownerSeed, FWTPM_SEED_SIZE);
+    eraseBase = gFlashEraseCnt;
+    for (i = 0; i < 2000; i++) {
+        ctx.disableClear = (i & 1);
+        rc = FWTPM_NV_SaveFlags(&ctx);
+        AssertIntEQ(rc, 0);
+    }
+    AssertIntGT(gFlashEraseCnt, eraseBase);   /* compaction(s) occurred */
+    FWTPM_Cleanup(&ctx);
+    rc = flash_boot(&ctx, &hal, FNV_PROG, 1);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(XMEMCMP(ctx.ownerSeed, savedSeed, FWTPM_SEED_SIZE), 0);
+    AssertIntEQ((int)ctx.disableClear, 1);    /* last write was i=1999 -> 1 */
+    FWTPM_Cleanup(&ctx);
+
+    fwtpm_pass("NV append-only flash (persist/torn/tamper/compact):", 0);
+#else
+    printf("Test fwTPM: %-6s %-42s Skipped\n", "",
+        "NV append-only flash:");
+#endif
+}
+
 /* ================================================================== */
 /* main                                                                */
 /* ================================================================== */
@@ -9264,6 +9481,7 @@ int fwtpm_unit_tests(int argc, char *argv[])
      * state, so remove FWTPM_NV_FILE afterwards. */
     test_fwtpm_clock_sethal();
     test_fwtpm_nv_sethal_mock();
+    test_fwtpm_nv_flash_append_only();
     (void)remove(FWTPM_NV_FILE);
 
     /* Key operations */

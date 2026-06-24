@@ -90,6 +90,10 @@ typedef struct FWTPM_NV_HEADER {
 #define FWTPM_NV_TAG_FREE              0xFFFF  /* Erased flash */
 #define FWTPM_NV_TAG_INVALID           0x0000  /* Sentinel/deleted */
 
+/* Append-only MAC checkpoint: HMAC over the body before it + 0xFF pad in the
+ * value; skipped on replay. */
+#define FWTPM_NV_TAG_MAC               0x00F0
+
 /* Hierarchy seeds (48 bytes each) */
 #define FWTPM_NV_TAG_OWNER_SEED        0x0001
 #define FWTPM_NV_TAG_ENDORSEMENT_SEED  0x0002
@@ -167,14 +171,15 @@ WOLFTPM_API int FWTPM_NV_Save(FWTPM_CTX* ctx);
 
 /*!
     \ingroup wolfTPM_fwTPM_NV
-    \brief Register a custom NV HAL. Call after FWTPM_Init and before
-    FWTPM_NV_Init to replace the default file-based backend. Typical
-    use is a flash / EEPROM driver on embedded targets.
+    \brief Register a custom NV HAL to replace the default file-based backend.
+    Call on a zeroed FWTPM_CTX before FWTPM_Init() (which runs FWTPM_NV_Init
+    internally and preserves the pre-set HAL). Typical use is a flash / EEPROM
+    driver on embedded targets.
 
     \return 0 on success
     \return BAD_FUNC_ARG if ctx or hal is NULL
 
-    \param ctx pointer to an initialized FWTPM_CTX
+    \param ctx pointer to a zeroed FWTPM_CTX (before FWTPM_Init)
     \param hal pointer to a caller-populated FWTPM_NV_HAL (the struct
         must remain valid for the lifetime of the context)
 
