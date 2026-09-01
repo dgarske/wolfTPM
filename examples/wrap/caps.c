@@ -125,10 +125,12 @@ int TPM2_Wrapper_CapsArgs(void* userCtx, int argc, char *argv[])
         caps.keyGroupId, caps.opMode, caps.fwCounter, caps.fwCounterSame);
 #endif
 
-    /* List the active persistent handles */
+    /* List the active persistent handles. On success this returns the handle
+     * count, which must not be left in rc: it is this example's exit status. */
     rc = wolfTPM2_GetHandles(PERSISTENT_FIRST, NULL);
     if (rc >= 0) {
         printf("Found %d persistent handles\n", rc);
+        rc = 0;
     }
 
     /* Print the available PCR's */
