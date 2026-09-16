@@ -5724,6 +5724,109 @@ int wolfTPM2_SignHash(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
 }
 
+/* Reject a signature the TPM cannot accept as a parameter. Some parts stop
+ * responding until a hardware reset rather than erroring, so this must not be
+ * left to the TPM. Two limits apply: TPM_PT_INPUT_BUFFER bounds the parameter
+ * and TPM_PT_MAX_COMMAND_SIZE bounds the whole command, so the capability read
+ * is skipped only when the signature plus overhead fits inside
+ * TPM_MIN_INPUT_BUFFER, the floor every conformant TPM meets. That still
+ * covers every ECC signature and RSA up to 4096. Above it the limit must be
+ * established, so this fails closed. Returns TPM_RC_SUCCESS if it fits,
+ * BUFFER_E if it provably does not, and the query error otherwise so callers
+ * can tell the two apart. */
+
+/* Bytes that share the command with the signature: 10-byte header, up to two
+ * 4-byte handles, a 4-byte auth-area size, a password session (~9) or an HMAC
+ * session with a nonce and digest (~75), the digest TPM2B (up to 66), and the
+ * TPMT_SIGNATURE tag/alg/size fields (~8). Rounded up with margin. Only used
+ * to reserve room against TPM_PT_MAX_COMMAND_SIZE, so an over-estimate can
+ * reject a signature that would just fit; override if that ever bites. */
+#ifndef TPM_SIG_CMD_OVERHEAD
+#define TPM_SIG_CMD_OVERHEAD 176
+#endif
+
+static int wolfTPM2_CheckSigInputBuffer(int sigSz)
+{
+    int rc;
+    GetCapability_In  in;
+    GetCapability_Out out;
+    TPML_TAGGED_TPM_PROPERTY* props;
+    UINT32 inputBuffer;
+
+    if (sigSz < 0) {
+        return BUFFER_E;
+    }
+    /* Overhead is included: a signature that fits the parameter floor could
+     * still overflow a TPM whose command limit equals that floor. */
+    if ((UINT32)sigSz + TPM_SIG_CMD_OVERHEAD <= TPM_MIN_INPUT_BUFFER) {
+        return TPM_RC_SUCCESS;
+    }
+
+    XMEMSET(&in, 0, sizeof(in));
+    XMEMSET(&out, 0, sizeof(out));
+    in.capability = TPM_CAP_TPM_PROPERTIES;
+    in.property = TPM_PT_INPUT_BUFFER;
+    in.propertyCount = 1;
+    rc = TPM2_GetCapability(&in, &out);
+    if (rc != TPM_RC_SUCCESS) {
+    #ifdef DEBUG_WOLFTPM
+        printf("Signature size check: cannot read TPM_PT_INPUT_BUFFER "
+            "(0x%x), refusing a %d byte signature\n", rc, sigSz);
+    #endif
+        return rc; /* query failure, distinct from a genuine oversize */
+    }
+    /* union - confirm the capability and property asked for */
+    props = &out.capabilityData.data.tpmProperties;
+    if (out.capabilityData.capability != TPM_CAP_TPM_PROPERTIES ||
+            props->count == 0 ||
+            props->tpmProperty[0].property != TPM_PT_INPUT_BUFFER) {
+    #ifdef DEBUG_WOLFTPM
+        printf("Signature size check: unexpected capability response, "
+            "refusing a %d byte signature\n", sigSz);
+    #endif
+        return TPM_RC_VALUE; /* not an oversize; the TPM answered wrongly */
+    }
+
+    inputBuffer = props->tpmProperty[0].value;
+    if (inputBuffer == 0) {
+        return TPM_RC_VALUE; /* nonsensical limit, treat as unreadable */
+    }
+    if ((UINT32)sigSz > inputBuffer) {
+    #ifdef DEBUG_WOLFTPM
+        printf("Signature size check: signature %d bytes exceeds the TPM's "
+            "%u byte input buffer\n", sigSz, (unsigned int)inputBuffer);
+    #endif
+        return BUFFER_E;
+    }
+
+    /* Also check the whole command fits; some parts report both the same.
+     * Not reporting this limit is not penalised, the check above bounded it. */
+    XMEMSET(&in, 0, sizeof(in));
+    XMEMSET(&out, 0, sizeof(out));
+    in.capability = TPM_CAP_TPM_PROPERTIES;
+    in.property = TPM_PT_MAX_COMMAND_SIZE;
+    in.propertyCount = 1;
+    rc = TPM2_GetCapability(&in, &out);
+    if (rc == TPM_RC_SUCCESS &&
+            out.capabilityData.capability == TPM_CAP_TPM_PROPERTIES) {
+        props = &out.capabilityData.data.tpmProperties;
+        if (props->count > 0 &&
+                props->tpmProperty[0].property == TPM_PT_MAX_COMMAND_SIZE &&
+                props->tpmProperty[0].value > 0 &&
+                (UINT32)sigSz + TPM_SIG_CMD_OVERHEAD >
+                    props->tpmProperty[0].value) {
+        #ifdef DEBUG_WOLFTPM
+            printf("Signature size check: signature %d bytes plus overhead "
+                "exceeds the TPM's %u byte command limit\n", sigSz,
+                (unsigned int)props->tpmProperty[0].value);
+        #endif
+            return BUFFER_E;
+        }
+    }
+
+    return TPM_RC_SUCCESS;
+}
+
 /* sigAlg: TPM_ALG_RSASSA, TPM_ALG_RSAPSS, TPM_ALG_ECDSA or TPM_ALG_ECDAA */
 /* hashAlg: TPM_ALG_SHA1, TPM_ALG_SHA256, TPM_ALG_SHA384 or TPM_ALG_SHA512 */
 int wolfTPM2_VerifyHashTicket(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
@@ -5739,6 +5842,11 @@ int wolfTPM2_VerifyHashTicket(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
 
     if (dev == NULL || key == NULL || digest == NULL || sig == NULL) {
         return BAD_FUNC_ARG;
+    }
+
+    rc = wolfTPM2_CheckSigInputBuffer(sigSz);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
     }
 
     if (key->pub.publicArea.type == TPM_ALG_ECC) {
@@ -6170,6 +6278,13 @@ int wolfTPM2_VerifySequenceComplete(WOLFTPM2_DEV* dev,
         return BAD_FUNC_ARG;
     }
 
+    /* Before the sequence is advanced: bailing out after SequenceUpdate
+     * would leave the sequence slot allocated. */
+    rc = wolfTPM2_CheckSigInputBuffer(sigSz);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
+    }
+
     /* Validate per-key-type sigSz BEFORE the internal SequenceUpdate
      * call. Otherwise we advance the TPM-side sequence and then bail out
      * before Complete, leaving the slot allocated until the caller
@@ -6455,6 +6570,11 @@ int wolfTPM2_VerifyDigestSignature(WOLFTPM2_DEV* dev, WOLFTPM2_KEY* key,
     }
     if (contextSz > 0 && context == NULL) {
         return BAD_FUNC_ARG;
+    }
+
+    rc = wolfTPM2_CheckSigInputBuffer(sigSz);
+    if (rc != TPM_RC_SUCCESS) {
+        return rc;
     }
 
     XMEMSET(&verifyDigestSigIn, 0, sizeof(verifyDigestSigIn));
