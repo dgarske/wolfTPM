@@ -417,22 +417,115 @@ int TPM2_TIS_Status(TPM2_CTX* ctx, byte* status)
         sizeof(*status));
 }
 
+/* Budget for the wait loops below. An iteration count makes the real timeout
+ * depend on host speed, so a >20 s RSA key generation times out intermittently.
+ * Use TPM_TIMEOUT_MS of real time where a monotonic clock exists; elsewhere
+ * keep counting exactly as before so no port gains a requirement. */
+typedef struct TPM2_TIS_TIMEOUT {
+#ifdef WOLFTPM_HAVE_MONOTONIC_MS
+    word32 start;
+    int haveStart;
+#endif
+#if defined(DEBUG_WOLFTPM) && !defined(WOLFTPM_NO_STD_HEADERS) && \
+    defined(WOLFTPM_HAVE_MONOTONIC_MS)
+    #define WOLFTPM_TIS_PROGRESS
+    word32 secs;  /* whole seconds already marked with a dot */
+#endif
+    int tries;
+} TPM2_TIS_TIMEOUT;
+
+static void TPM2_TIS_TimeoutStart(TPM2_TIS_TIMEOUT* to)
+{
+    XMEMSET(to, 0, sizeof(*to));
+    to->tries = TPM_TIMEOUT_TRIES;
+#ifdef WOLFTPM_HAVE_MONOTONIC_MS
+    to->start = XTPM_GET_TIMEMS();
+    /* zero tick means the clock could not be read; count instead */
+    to->haveStart = (to->start != 0) ? 1 : 0;
+#endif
+}
+
+/* Returns 1 once the budget is spent, 0 while there is still time. */
+static int TPM2_TIS_TimeoutExpired(TPM2_TIS_TIMEOUT* to)
+{
+#ifdef WOLFTPM_HAVE_MONOTONIC_MS
+    word32 elapsed;
+#endif
+
+    if (to->tries > 0) {
+        to->tries--;
+    }
+#ifdef WOLFTPM_HAVE_MONOTONIC_MS
+    if (to->haveStart) {
+        /* unsigned subtraction stays correct across the word32 wrap */
+        elapsed = (word32)(XTPM_GET_TIMEMS() - to->start);
+        if (elapsed >= TPM_TIMEOUT_MS) {
+            return 1;
+        }
+    #ifdef WOLFTPM_TIS_PROGRESS
+        /* Waits of a minute or more are normal for key generation, so show a
+         * dot per second rather than let a slow command look like a hang. */
+        if (elapsed / 1000u > to->secs) {
+            to->secs = elapsed / 1000u;
+            printf(".");
+            fflush(stdout);
+        }
+    #endif
+        /* A clock stuck at one value would never expire, so keep the
+         * iteration cap as a backstop for that case only. */
+        return (to->tries <= 0 && elapsed == 0) ? 1 : 0;
+    }
+#endif
+    return (to->tries <= 0) ? 1 : 0;
+}
+
+#ifdef WOLFTPM_TIS_PROGRESS
+/* End the dot line, if any were printed. */
+static void TPM2_TIS_TimeoutDone(TPM2_TIS_TIMEOUT* to)
+{
+    if (to->secs > 0) {
+        printf("\n");
+        fflush(stdout);
+    }
+}
+#else
+    #define TPM2_TIS_TimeoutDone(to) (void)(to)
+#endif
+
+#ifdef WOLFTPM_DEBUG_TIMEOUT
+/* Elapsed ms where a clock exists, else polls taken. */
+static word32 TPM2_TIS_TimeoutSpent(TPM2_TIS_TIMEOUT* to)
+{
+#ifdef WOLFTPM_HAVE_MONOTONIC_MS
+    if (to->haveStart) {
+        return (word32)(XTPM_GET_TIMEMS() - to->start);
+    }
+#endif
+    return (word32)(TPM_TIMEOUT_TRIES - to->tries);
+}
+#endif
+
 int TPM2_TIS_WaitForStatus(TPM2_CTX* ctx, byte status, byte status_mask)
 {
     int rc;
-    int timeout = TPM_TIMEOUT_TRIES;
+    int expired = 0;
+    TPM2_TIS_TIMEOUT to;
     byte reg = 0;
 
+    TPM2_TIS_TimeoutStart(&to);
     do {
         rc = TPM2_TIS_Status(ctx, &reg);
         if (rc == TPM_RC_SUCCESS && (reg & status) == status_mask)
             break;
         XTPM_WAIT();
-    } while (rc == TPM_RC_SUCCESS && --timeout > 0);
+        expired = TPM2_TIS_TimeoutExpired(&to);
+    } while (rc == TPM_RC_SUCCESS && !expired);
+    TPM2_TIS_TimeoutDone(&to);
 #ifdef WOLFTPM_DEBUG_TIMEOUT
-    printf("TIS_WaitForStatus: Timeout %d\n", TPM_TIMEOUT_TRIES - timeout);
+    printf("TIS_WaitForStatus: spent %u\n",
+        (unsigned int)TPM2_TIS_TimeoutSpent(&to));
 #endif
-    if (timeout <= 0)
+    if (expired)
         return TPM_RC_TIMEOUT;
     return rc;
 }
@@ -458,7 +551,10 @@ int TPM2_TIS_GetBurstCount(TPM2_CTX* ctx, word16* burstCount)
 #endif
 
     {
-        int timeout = TPM_TIMEOUT_TRIES;
+        int expired = 0;
+        TPM2_TIS_TIMEOUT to;
+
+        TPM2_TIS_TimeoutStart(&to);
         *burstCount = 0;
         do {
             rc = TPM2_TIS_Read(ctx, TPM_BURST_COUNT(ctx->locality),
@@ -469,16 +565,19 @@ int TPM2_TIS_GetBurstCount(TPM2_CTX* ctx, word16* burstCount)
             if (rc == TPM_RC_SUCCESS && *burstCount > 0)
                 break;
             XTPM_WAIT();
-        } while (rc == TPM_RC_SUCCESS && --timeout > 0);
+            expired = TPM2_TIS_TimeoutExpired(&to);
+        } while (rc == TPM_RC_SUCCESS && !expired);
+        TPM2_TIS_TimeoutDone(&to);
 
     #ifdef WOLFTPM_DEBUG_TIMEOUT
-        printf("TIS_GetBurstCount: Timeout %d\n", TPM_TIMEOUT_TRIES - timeout);
+        printf("TIS_GetBurstCount: spent %u\n",
+            (unsigned int)TPM2_TIS_TimeoutSpent(&to));
     #endif
 
         if (*burstCount > MAX_SPI_FRAMESIZE)
             *burstCount = MAX_SPI_FRAMESIZE;
 
-        if (timeout <= 0)
+        if (expired)
             return TPM_RC_TIMEOUT;
     }
 
