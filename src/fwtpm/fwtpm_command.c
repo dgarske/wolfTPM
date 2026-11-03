@@ -920,6 +920,63 @@ static int FwCtRelCompare(const byte* a, const byte* b, int len)
 
     return ((int)gt + (int)gt + (int)eq) - 1;
 }
+
+/* Apply one TPM_EO_* relation between operandA (data) and operandB, both
+ * big-endian byte strings of len bytes. Shared by TPM2_PolicyCounterTimer
+ * and TPM2_PolicyCapability. Sets *pass to 1 when the relation holds.
+ * Returns TPM_RC_VALUE for an unknown operation. */
+static TPM_RC FwPolicyEoCompare(const byte* data, const byte* operandB,
+    int len, UINT16 operation, int* pass)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    int cmpResult;
+    int signedCmpResult;
+    volatile byte bitDiff = 0;
+    int i;
+
+    *pass = 0;
+    cmpResult = FwCtRelCompare(data, operandB, len);
+
+    /* Signed comparison flips the result when the sign bits differ.
+     * Selected with masks so the compared MSB is not branched on. */
+    signedCmpResult = cmpResult;
+    if (len > 0) {
+        int diffSign = (int)(((UINT32)(data[0] ^ operandB[0])) >> 7) & 1;
+        int nvNeg = (int)(((UINT32)data[0]) >> 7) & 1;
+        int signRes = 1 - (2 * nvNeg);
+        signedCmpResult = (signRes & -diffSign) |
+                          (cmpResult & ~(-diffSign));
+    }
+
+    switch (operation) {
+        case TPM_EO_EQ:          *pass = (cmpResult == 0); break;
+        case TPM_EO_NEQ:         *pass = (cmpResult != 0); break;
+        case TPM_EO_SIGNED_GT:   *pass = (signedCmpResult > 0); break;
+        case TPM_EO_UNSIGNED_GT: *pass = (cmpResult > 0); break;
+        case TPM_EO_SIGNED_LT:   *pass = (signedCmpResult < 0); break;
+        case TPM_EO_UNSIGNED_LT: *pass = (cmpResult < 0); break;
+        case TPM_EO_SIGNED_GE:   *pass = (signedCmpResult >= 0); break;
+        case TPM_EO_UNSIGNED_GE: *pass = (cmpResult >= 0); break;
+        case TPM_EO_SIGNED_LE:   *pass = (signedCmpResult <= 0); break;
+        case TPM_EO_UNSIGNED_LE: *pass = (cmpResult <= 0); break;
+        case TPM_EO_BITSET:
+            for (i = 0; i < len; i++) {
+                bitDiff |= (byte)((data[i] & operandB[i]) ^ operandB[i]);
+            }
+            *pass = ((int)bitDiff == 0);
+            break;
+        case TPM_EO_BITCLEAR:
+            for (i = 0; i < len; i++) {
+                bitDiff |= (byte)(data[i] & operandB[i]);
+            }
+            *pass = ((int)bitDiff == 0);
+            break;
+        default:
+            rc = TPM_RC_VALUE;
+            break;
+    }
+    return rc;
+}
 #endif /* !FWTPM_NO_POLICY */
 
 /* Compute cpHash = H(commandCode || name1 || ... || cpBuffer)
@@ -1210,6 +1267,11 @@ static TPM_RC FwCmd_Startup(FWTPM_CTX* ctx, TPM2_Packet* cmd, int cmdSize,
             ctx->shDisabled = 0;
             ctx->ehDisabled = 0;
             ctx->phNvDisabled = 0;
+#ifndef FWTPM_NO_READONLY
+            /* readOnly is CLEAR on Reset or Restart and preserved by Resume,
+             * so it clears here and nowhere else (Part 2 Table 43). */
+            ctx->readOnly = 0;
+#endif
 #ifndef FWTPM_NO_CONTEXT
             /* Saved contexts are invalidated by Startup(CLEAR). */
             ctx->contextLiveCount = 0;
@@ -2417,6 +2479,11 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                         val |= TPMA_STARTUP_CLEAR_ehEnable;
                     if (!ctx->phNvDisabled)
                         val |= TPMA_STARTUP_CLEAR_phEnableNV;
+#ifndef FWTPM_NO_READONLY
+                    /* readOnly is stored positively, not inverted */
+                    if (ctx->readOnly)
+                        val |= TPMA_STARTUP_CLEAR_readOnly;
+#endif
                 }
             #ifndef FWTPM_NO_DA
                 else if (prop == TPM_PT_LOCKOUT_COUNTER)
@@ -2596,6 +2663,32 @@ static TPM_RC FwCmd_GetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         case TPM_CAP_AUDIT_COMMANDS:
             TPM2_Packet_AppendU32(rsp, 0);
             break;
+
+        /* Settable feature configuration written by TPM2_SetCapability.
+         * TPML_TAGGED_CONFIG: count then configuration/enable/lock triples,
+         * starting at the requested TPM_PT_CONFIG and capped by
+         * propertyCount. */
+        case TPM_CAP_CONFIGS: {
+            UINT32 first = property;
+            UINT32 avail = 0;
+            UINT32 emit = 0;
+            UINT32 ci;
+
+            if (first < (UINT32)FWTPM_CONFIG_COUNT) {
+                avail = (UINT32)FWTPM_CONFIG_COUNT - first;
+            }
+            emit = (propertyCount < avail) ? propertyCount : avail;
+            TPM2_Packet_AppendU32(rsp, emit);
+            for (ci = 0; ci < emit; ci++) {
+                TPM2_Packet_AppendU32(rsp, first + ci);
+                TPM2_Packet_AppendU8(rsp, ctx->configEnable[first + ci]);
+                TPM2_Packet_AppendU8(rsp, ctx->configLock[first + ci]);
+            }
+            if (emit < avail) {
+                FwPatchMoreData(rsp, moreDataPos, 1);
+            }
+            break;
+        }
 
     #ifdef WOLFTPM_SPDM
         case TPM_CAP_SPDM_SESSION_INFO: {
@@ -7051,6 +7144,146 @@ static TPM_RC FwCmd_HierarchyControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
                     FwFreeObject(&ctx->objects[i]);
                 }
             }
+        }
+    }
+
+    if (rc == 0) {
+        FwRspNoParams(rsp, cmdTag);
+    }
+
+    return rc;
+}
+
+#ifndef FWTPM_NO_READONLY
+/* --- TPM2_ReadOnlyControl (CC 0x01A0) --- */
+/* Enable or disable Read-Only mode (TPM 2.0 Part 3 Sec.24.9). Platform
+ * authorization only. The mode is reported as the readOnly bit of
+ * TPMA_STARTUP_CLEAR and enforced by the dispatcher. */
+static TPM_RC FwCmd_ReadOnlyControl(FWTPM_CTX* ctx, TPM2_Packet* cmd,
+    int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    UINT32 authHandle = 0;
+    UINT8 state = 0;
+
+    (void)cmdSize;
+
+    TPM2_Packet_ParseU32(cmd, &authHandle);
+    if (cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
+
+    TPM2_Packet_ParseU8(cmd, &state);
+    /* A truncated command leaves state at 0, which would otherwise be read
+     * as a valid request to leave Read-Only mode and reported as success. */
+    if (rc == 0 && cmd->overflow) {
+        rc = TPM_RC_COMMAND_SIZE;
+    }
+
+#ifdef DEBUG_WOLFTPM
+    printf("fwTPM: ReadOnlyControl(auth=0x%x, state=%d)\n",
+        authHandle, state);
+#endif
+
+    if (rc == 0 && state > 1) {
+        rc = TPM_RC_VALUE;
+    }
+
+    /* TPMI_RH_PLATFORM: only platformAuth may change the mode. */
+    if (rc == 0 && authHandle != TPM_RH_PLATFORM) {
+        rc = TPM_RC_AUTH_TYPE;
+    }
+
+    /* Volatile: cleared by Startup(CLEAR) and carried across an orderly
+     * Shutdown(STATE) by the NV shutdown marker, so there is no flags
+     * write here. */
+    if (rc == 0) {
+        ctx->readOnly = (state != 0);
+    }
+
+    if (rc == 0) {
+        FwRspNoParams(rsp, cmdTag);
+    }
+
+    return rc;
+}
+#endif /* !FWTPM_NO_READONLY */
+
+/* --- TPM2_SetCapability (CC 0x019F) --- */
+/* Sets one settable feature configuration (TPM 2.0 Part 3 Sec.30.4).
+ * TPMU_SET_CAPABILITIES has no normative member list -- Part 2 Table 137
+ * leaves it to a TCG Registry -- so the only capability accepted here is
+ * TPM_CAP_CONFIGS, matching the TPMS_TAGGED_CONFIG form wolfTPM's client
+ * side already sends. Anything else returns TPM_RC_VALUE, which is also what
+ * Infineon silicon returns for a capability it does not implement.
+ * A configuration whose lock is SET cannot be written again for the lifetime
+ * of the part; that too reports TPM_RC_VALUE, as there is no TPM_RC_LOCKED. */
+static TPM_RC FwCmd_SetCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
+    int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    UINT32 authHandle = 0;
+    UINT16 dataSz = 0;
+    UINT32 capability = 0;
+    UINT32 configuration = 0;
+    UINT8 enable = 0;
+    UINT8 lock = 0;
+    byte oldEnable = 0;
+    byte oldLock = 0;
+
+    (void)cmdSize;
+
+    TPM2_Packet_ParseU32(cmd, &authHandle);
+    if (cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
+
+    /* TPM2B_SET_CAPABILITY_DATA: size || capability || TPMS_TAGGED_CONFIG */
+    if (rc == 0) {
+        TPM2_Packet_ParseU16(cmd, &dataSz);
+        TPM2_Packet_ParseU32(cmd, &capability);
+        TPM2_Packet_ParseU32(cmd, &configuration);
+        TPM2_Packet_ParseU8(cmd, &enable);
+        TPM2_Packet_ParseU8(cmd, &lock);
+        if (cmd->overflow) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
+        else if (dataSz != 4 + 4 + 1 + 1) {
+            rc = TPM_RC_SIZE;
+        }
+    }
+
+#ifdef DEBUG_WOLFTPM
+    if (rc == 0) {
+        printf("fwTPM: SetCapability(auth=0x%x, cap=0x%x, config=%u, "
+            "enable=%d, lock=%d)\n", authHandle, capability, configuration,
+            enable, lock);
+    }
+#endif
+
+    /* Part 3: authorization depends on the capability. For TPM_CAP_CONFIGS
+     * wolfTPM requires Platform authorization. */
+    if (rc == 0 && authHandle != TPM_RH_PLATFORM) {
+        rc = TPM_RC_AUTH_TYPE;
+    }
+    if (rc == 0 && capability != TPM_CAP_CONFIGS) {
+        rc = TPM_RC_VALUE;
+    }
+    if (rc == 0 && (configuration >= (UINT32)FWTPM_CONFIG_COUNT ||
+            enable > 1 || lock > 1)) {
+        rc = TPM_RC_VALUE;
+    }
+    if (rc == 0 && ctx->configLock[configuration] != 0) {
+        rc = TPM_RC_VALUE;
+    }
+
+    /* Commit to NV first; on failure restore so no state change is reported
+     * as an error (Part 3). */
+    if (rc == 0) {
+        oldEnable = ctx->configEnable[configuration];
+        oldLock = ctx->configLock[configuration];
+        ctx->configEnable[configuration] = (byte)enable;
+        ctx->configLock[configuration] = (byte)lock;
+        rc = (TPM_RC)FWTPM_NV_SaveConfigs(ctx);
+        if (rc != 0) {
+            ctx->configEnable[configuration] = oldEnable;
+            ctx->configLock[configuration] = oldLock;
         }
     }
 
@@ -12385,6 +12618,7 @@ static void FwResetPolicyData(FWTPM_Session* sess)
     sess->hasRequiredLocality = 0;
     sess->commandCode = 0;
     sess->templateHash.size = 0;
+    sess->paramHash.size = 0;
     sess->checkNvWritten = 0;
     sess->nvWrittenState = 0;
     sess->pcrUpdateCounter = 0;
@@ -14406,7 +14640,8 @@ static TPM_RC FwCmd_PolicyTemplate(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         /* cpHash, nameHash and templateHash share one session slot
          * (Part 3 Sec.23.19), so only a repeat of the same template is
          * accepted */
-        if (sess->cpHashA.size > 0 || sess->nameHash.size > 0) {
+        if (sess->cpHashA.size > 0 || sess->nameHash.size > 0 ||
+                sess->paramHash.size > 0) {
             rc = TPM_RC_CPHASH;
         }
         else if (sess->templateHash.size > 0) {
@@ -14474,8 +14709,9 @@ static TPM_RC FwCmd_PolicyCpHash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
     if (rc == 0) {
-        /* cpHash, nameHash and templateHash share one session slot */
-        if (sess->nameHash.size > 0 || sess->templateHash.size > 0) {
+        /* cpHash, nameHash, templateHash and paramHash share one slot */
+        if (sess->nameHash.size > 0 || sess->templateHash.size > 0 ||
+                sess->paramHash.size > 0) {
             rc = TPM_RC_CPHASH;
         }
         /* If cpHashA already set, must be identical — always run
@@ -14501,6 +14737,81 @@ static TPM_RC FwCmd_PolicyCpHash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
         if (FwPolicyExtend(sess, TPM_CC_PolicyCpHash,
                 cpHashBuf, cpHashSz, NULL, 0, 0) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        FwRspNoParams(rsp, cmdTag);
+    }
+
+    return rc;
+}
+
+/* --- TPM2_PolicyParameters (CC 0x019C) --- */
+/* policyDigest = H(policyDigest || TPM_CC_PolicyParameters || pHash)
+ * A deferred assertion. pHash covers commandCode and the command parameters
+ * but NOT the handle Names (Part 3 Sec.23.24), which is why it is kept in its
+ * own session field rather than sharing cpHashA. Mutually exclusive with
+ * PolicyCpHash, PolicyNameHash and PolicyTemplate. */
+static TPM_RC FwCmd_PolicyParameters(FWTPM_CTX* ctx, TPM2_Packet* cmd,
+    int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    FWTPM_Session* sess;
+    UINT16 pHashSz = 0;
+    byte pHashBuf[TPM_MAX_DIGEST_SIZE];
+    int sizeMismatch;
+    int pDiff;
+    word32 cmpSz;
+
+    sess = FwPolicyParseSession(ctx, cmd, cmdSize, cmdTag);
+    if (sess == NULL) {
+        rc = TPM_RC_VALUE;
+    }
+    if (rc == 0 && sess->sessionType != TPM_SE_POLICY &&
+        sess->sessionType != TPM_SE_TRIAL) {
+        rc = TPM_RC_AUTH_TYPE;
+    }
+
+    if (rc == 0) {
+        int expectedSz = TPM2_GetHashDigestSize(sess->authHash);
+        rc = FwPolicyParseTpm2b(cmd, cmdSize, pHashBuf,
+            (UINT16)sizeof(pHashBuf), &pHashSz);
+        if (rc == 0 && (expectedSz <= 0 ||
+                pHashSz != (UINT16)expectedSz)) {
+            rc = TPM_RC_SIZE;
+        }
+    }
+    if (rc == 0) {
+        /* Shares the single command-binding slot with cpHash, nameHash and
+         * templateHash (Part 3 Sec.23.24). */
+        if (sess->cpHashA.size > 0 || sess->nameHash.size > 0 ||
+                sess->templateHash.size > 0) {
+            rc = TPM_RC_CPHASH;
+        }
+        /* If already set it must be identical. Constant-time compare always
+         * runs so timing does not leak whether the sizes matched. */
+        else if (sess->paramHash.size > 0) {
+            sizeMismatch = (sess->paramHash.size != pHashSz);
+            cmpSz = (sess->paramHash.size < pHashSz) ?
+                sess->paramHash.size : pHashSz;
+            pDiff = TPM2_ConstantCompare(sess->paramHash.buffer, pHashBuf,
+                cmpSz);
+            if (sizeMismatch | pDiff) {
+                rc = TPM_RC_CPHASH;
+            }
+        }
+    }
+    if (rc == 0) {
+    #ifdef DEBUG_WOLFTPM
+        printf("fwTPM: PolicyParameters(session=0x%x, pHashSz=%d)\n",
+            sess->handle, pHashSz);
+    #endif
+        sess->paramHash.size = pHashSz;
+        XMEMCPY(sess->paramHash.buffer, pHashBuf, pHashSz);
+
+        if (FwPolicyExtend(sess, TPM_CC_PolicyParameters,
+                pHashBuf, pHashSz, NULL, 0, 0) != 0) {
             rc = TPM_RC_FAILURE;
         }
     }
@@ -14544,8 +14855,9 @@ static TPM_RC FwCmd_PolicyNameHash(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         }
     }
     if (rc == 0) {
-        /* cpHash, nameHash and templateHash share one session slot */
-        if (sess->cpHashA.size > 0 || sess->templateHash.size > 0) {
+        /* cpHash, nameHash, templateHash and paramHash share one slot */
+        if (sess->cpHashA.size > 0 || sess->templateHash.size > 0 ||
+                sess->paramHash.size > 0) {
             rc = TPM_RC_CPHASH;
         }
         /* If nameHash already set, must be identical — always run
@@ -14635,7 +14947,7 @@ static TPM_RC FwCmd_PolicyDuplicationSelect(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = TPM_RC_COMMAND_CODE;
     }
     if (rc == 0 && (sess->nameHash.size != 0 || sess->cpHashA.size != 0 ||
-            sess->templateHash.size != 0)) {
+            sess->templateHash.size != 0 || sess->paramHash.size != 0)) {
         rc = TPM_RC_CPHASH;
     }
 
@@ -14797,51 +15109,9 @@ static TPM_RC FwCmd_PolicyCounterTimer(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0 && sess->sessionType == TPM_SE_POLICY) {
         byte* data = timeInfo + offset;
         int pass = 0;
-        int cmpResult = 0;
-        int signedCmpResult = 0;
-        volatile byte bitDiff = 0;
-        int i;
 
-        cmpResult = FwCtRelCompare(data, operandB, (int)operandBSz);
-
-        /* Signed comparison flips the result when the sign bits differ.
-         * Selected with masks so the compared MSB is not branched on. */
-        signedCmpResult = cmpResult;
-        if (operandBSz > 0) {
-            int diffSign = (int)(((UINT32)(data[0] ^ operandB[0])) >> 7) & 1;
-            int nvNeg = (int)(((UINT32)data[0]) >> 7) & 1;
-            int signRes = 1 - (2 * nvNeg);
-            signedCmpResult = (signRes & -diffSign) |
-                              (cmpResult & ~(-diffSign));
-        }
-
-        switch (operation) {
-            case TPM_EO_EQ:          pass = (cmpResult == 0); break;
-            case TPM_EO_NEQ:         pass = (cmpResult != 0); break;
-            case TPM_EO_SIGNED_GT:   pass = (signedCmpResult > 0); break;
-            case TPM_EO_UNSIGNED_GT: pass = (cmpResult > 0); break;
-            case TPM_EO_SIGNED_LT:   pass = (signedCmpResult < 0); break;
-            case TPM_EO_UNSIGNED_LT: pass = (cmpResult < 0); break;
-            case TPM_EO_SIGNED_GE:   pass = (signedCmpResult >= 0); break;
-            case TPM_EO_UNSIGNED_GE: pass = (cmpResult >= 0); break;
-            case TPM_EO_SIGNED_LE:   pass = (signedCmpResult <= 0); break;
-            case TPM_EO_UNSIGNED_LE: pass = (cmpResult <= 0); break;
-            case TPM_EO_BITSET:
-                for (i = 0; i < (int)operandBSz; i++) {
-                    bitDiff |= (byte)((data[i] & operandB[i]) ^ operandB[i]);
-                }
-                pass = ((int)bitDiff == 0);
-                break;
-            case TPM_EO_BITCLEAR:
-                for (i = 0; i < (int)operandBSz; i++) {
-                    bitDiff |= (byte)(data[i] & operandB[i]);
-                }
-                pass = ((int)bitDiff == 0);
-                break;
-            default:
-                rc = TPM_RC_VALUE;
-                break;
-        }
+        rc = FwPolicyEoCompare(data, operandB, (int)operandBSz, operation,
+            &pass);
         if (rc == 0 && !pass) {
             rc = TPM_RC_POLICY;
         }
@@ -14878,6 +15148,307 @@ static TPM_RC FwCmd_PolicyCounterTimer(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         wc_HashUpdate(hashCtx, wcHash, tmpBuf, 2);
         FwStoreU16BE(tmpBuf, operation);
         wc_HashUpdate(hashCtx, wcHash, tmpBuf, 2);
+        wc_HashFinal(hashCtx, wcHash, argsHash);
+        wc_HashFree(hashCtx, wcHash);
+        hashCtxInit = 0;
+    }
+    /* policyDigest = H(policyDigest || CC || argsHash) */
+    if (rc == 0) {
+        if (wc_HashInit_ex(hashCtx, wcHash, NULL, INVALID_DEVID) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        else {
+            hashCtxInit = 1;
+        }
+    }
+    if (rc == 0) {
+        wc_HashUpdate(hashCtx, wcHash,
+            sess->policyDigest.buffer, sess->policyDigest.size);
+        FwStoreU32BE(ccBuf, cc);
+        wc_HashUpdate(hashCtx, wcHash, ccBuf, 4);
+        wc_HashUpdate(hashCtx, wcHash, argsHash, dSz);
+        wc_HashFinal(hashCtx, wcHash, sess->policyDigest.buffer);
+        sess->policyDigest.size = (UINT16)dSz;
+    }
+    if (hashCtxInit) {
+        wc_HashFree(hashCtx, wcHash);
+    }
+
+    if (rc == 0) {
+        FwRspNoParams(rsp, cmdTag);
+    }
+
+    FWTPM_FREE_VAR(hashCtx);
+    return rc;
+}
+
+/* Width in bytes of the property identifier at the head of one marshaled
+ * capability entry. TPM2_GetCapability returns properties from the requested
+ * one onward, so the head is compared against the requested property to tell
+ * "this property" from "the next one after it". 0 = no identifier to check. */
+static int FwPolicyCapIdWidth(UINT32 capability)
+{
+    int width;
+
+    switch (capability) {
+        case TPM_CAP_ALGS:          /* TPMS_ALG_PROPERTY.alg */
+        case TPM_CAP_ECC_CURVES:    /* TPM_ECC_CURVE */
+            width = 2;
+            break;
+        case TPM_CAP_HANDLES:       /* TPM_HANDLE */
+        case TPM_CAP_COMMANDS:      /* TPMA_CC.commandIndex */
+        case TPM_CAP_PP_COMMANDS:   /* TPM_CC */
+        case TPM_CAP_AUDIT_COMMANDS:
+        case TPM_CAP_TPM_PROPERTIES:  /* TPMS_TAGGED_PROPERTY.property */
+        case TPM_CAP_PCR_PROPERTIES:  /* TPMS_TAGGED_PCR_SELECT.tag */
+        case TPM_CAP_AUTH_POLICIES:   /* TPMS_TAGGED_POLICY.handle */
+        case TPM_CAP_ACT:             /* TPMS_ACT_DATA.handle */
+            width = 4;
+            break;
+        default:
+            width = 0;
+            break;
+    }
+    return width;
+}
+
+/* Largest marshaled single capability entry plus the GetCapability response
+ * framing (header 10 + moreData 1 + capability 4 + count 4). The biggest
+ * entry is a TPMS_TAGGED_POLICY (handle + TPMT_HA) or TPMS_TAGGED_PCR_SELECT. */
+#ifndef FWTPM_POLICY_CAP_RSP_MAX
+#define FWTPM_POLICY_CAP_RSP_MAX 512
+#endif
+
+/* Fetch operandA for TPM2_PolicyCapability by running the TPM2_GetCapability
+ * handler against a scratch packet pair, so the two commands cannot disagree
+ * about how a capability is marshaled (Part 3 Sec.23.23 says the TPM uses
+ * this command's parameters "to fetch the indicated property").
+ * On success *outSz is the marshaled property length, or 0 when the requested
+ * property does not exist. */
+static TPM_RC FwPolicyFetchCapability(FWTPM_CTX* ctx, UINT32 capability,
+    UINT32 property, byte* out, int outCap, int* outSz)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    byte capCmd[TPM2_HEADER_SIZE + 12];
+    TPM2_Packet cmdPkt;
+    TPM2_Packet rspPkt;
+    int idWidth;
+    int entryPos = TPM2_HEADER_SIZE + 1 + 4 + 4;
+    int total = 0;
+    int entrySz;
+    UINT32 count;
+    UINT32 gotId;
+    FWTPM_DECLARE_BUF(capRsp, FWTPM_POLICY_CAP_RSP_MAX);
+
+    *outSz = 0;
+    FWTPM_ALLOC_BUF(capRsp, FWTPM_POLICY_CAP_RSP_MAX);
+#ifdef WOLFTPM_SMALL_STACK
+    if (capRsp == NULL) {
+        return TPM_RC_MEMORY;
+    }
+#endif
+
+    /* Synthesize TPM2_GetCapability(capability, property, propertyCount=1) */
+    XMEMSET(capCmd, 0, sizeof(capCmd));
+    FwStoreU16BE(capCmd, TPM_ST_NO_SESSIONS);
+    FwStoreU32BE(capCmd + 2, (UINT32)sizeof(capCmd));
+    FwStoreU32BE(capCmd + 6, TPM_CC_GetCapability);
+    FwStoreU32BE(capCmd + TPM2_HEADER_SIZE, capability);
+    FwStoreU32BE(capCmd + TPM2_HEADER_SIZE + 4, property);
+    FwStoreU32BE(capCmd + TPM2_HEADER_SIZE + 8, 1);
+
+    cmdPkt.buf = capCmd;
+    cmdPkt.pos = TPM2_HEADER_SIZE;
+    cmdPkt.size = (int)sizeof(capCmd);
+    cmdPkt.overflow = 0;
+    FwRspInit(&rspPkt, capRsp, FWTPM_POLICY_CAP_RSP_MAX);
+
+    rc = FwCmd_GetCapability(ctx, &cmdPkt, (int)sizeof(capCmd), &rspPkt,
+        TPM_ST_NO_SESSIONS);
+    if (rc == 0 && rspPkt.overflow) {
+        rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0) {
+        total = rspPkt.pos;
+        if (total < entryPos) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    if (rc == 0) {
+        count = FwLoadU32BE(capRsp + TPM2_HEADER_SIZE + 1 + 4);
+        entrySz = total - entryPos;
+        if (count == 0 || entrySz <= 0) {
+            /* Property absent: caller maps this to TPM_RC_POLICY, or a pass
+             * when the operation is TPM_EO_NEQ. */
+            entrySz = 0;
+        }
+        else if (entrySz > outCap) {
+            rc = TPM_RC_FAILURE;
+        }
+        else {
+            /* Confirm this really is the requested property and not the one
+             * that follows it in the capability's ordering. */
+            idWidth = FwPolicyCapIdWidth(capability);
+            if (idWidth == 2) {
+                gotId = FwLoadU16BE(capRsp + entryPos);
+            }
+            else if (idWidth == 4) {
+                gotId = FwLoadU32BE(capRsp + entryPos);
+                if (capability == TPM_CAP_COMMANDS) {
+                    gotId = (gotId & (UINT32)TPMA_CC_commandIndex) |
+                        (gotId & (UINT32)CC_VEND);
+                }
+            }
+            else {
+                gotId = property; /* nothing to check against */
+            }
+            if (gotId != property) {
+                entrySz = 0;
+            }
+            else {
+                XMEMCPY(out, capRsp + entryPos, (size_t)entrySz);
+            }
+        }
+        if (rc == 0) {
+            *outSz = entrySz;
+        }
+    }
+
+    FWTPM_FREE_BUF(capRsp);
+    return rc;
+}
+
+/* --- TPM2_PolicyCapability (CC 0x019B) --- */
+/* Immediate assertion gating a policy on a TPM capability value.
+ * policyDigest = H(policyDigest || CC ||
+ *     H(operandB || offset || operation || capability || property))
+ * (Part 3 Sec.23.23, Equation 9). */
+static TPM_RC FwCmd_PolicyCapability(FWTPM_CTX* ctx, TPM2_Packet* cmd,
+    int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    FWTPM_Session* sess;
+    UINT16 operandBSz = 0;
+    /* Intentional limit, matching FwCmd_PolicyCounterTimer. Every capability
+     * this implementation can fetch marshals an operandA of at most 8 bytes
+     * for the comparable cases, so a larger TPM2B_OPERAND can only be a
+     * mismatch; FwPolicyParseTpm2b rejects one with TPM_RC_SIZE rather than
+     * truncating. Revisit alongside any capability with a digest-sized
+     * entry, such as TPM_CAP_AUTH_POLICIES. */
+    byte operandB[32];
+    UINT16 offset = 0;
+    UINT16 operation = 0;
+    UINT32 capability = 0;
+    UINT32 property = 0;
+    byte operandA[TPM_MAX_DIGEST_SIZE + 8];
+    int operandASz = 0;
+    FWTPM_DECLARE_VAR(hashCtx, wc_HashAlg);
+    enum wc_HashType wcHash;
+    int dSz;
+    byte argsHash[TPM_MAX_DIGEST_SIZE];
+    byte ccBuf[4];
+    byte tmpBuf[4];
+    UINT32 cc = TPM_CC_PolicyCapability;
+    int hashCtxInit = 0;
+
+    FWTPM_ALLOC_VAR(hashCtx, wc_HashAlg);
+
+    sess = FwPolicyParseSession(ctx, cmd, cmdSize, cmdTag);
+    if (sess == NULL) {
+        rc = TPM_RC_VALUE;
+    }
+    if (rc == 0 && sess->sessionType != TPM_SE_POLICY &&
+        sess->sessionType != TPM_SE_TRIAL) {
+        rc = TPM_RC_AUTH_TYPE;
+    }
+
+    if (rc == 0) {
+        rc = FwPolicyParseTpm2b(cmd, cmdSize, operandB,
+            (UINT16)sizeof(operandB), &operandBSz);
+    }
+    if (rc == 0) {
+        TPM2_Packet_ParseU16(cmd, &offset);
+        TPM2_Packet_ParseU16(cmd, &operation);
+        TPM2_Packet_ParseU32(cmd, &capability);
+        TPM2_Packet_ParseU32(cmd, &property);
+        if (cmd->overflow) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
+    }
+
+    /* Part 3 Sec.23.23: TPM_CAP_PCRS is explicitly rejected, as is any
+     * capability outside Table 167. */
+    if (rc == 0 && (capability == TPM_CAP_PCRS ||
+            FwPolicyCapIdWidth(capability) == 0)) {
+        rc = TPM_RC_VALUE;
+    }
+
+    if (rc == 0) {
+        rc = FwPolicyFetchCapability(ctx, capability, property,
+            operandA, (int)sizeof(operandA), &operandASz);
+    }
+
+    /* A trial session records the digest without evaluating the assertion. */
+    if (rc == 0 && sess->sessionType == TPM_SE_POLICY) {
+        int pass = 0;
+
+        if (operandASz == 0) {
+            /* Property does not exist: TPM_RC_POLICY unless TPM_EO_NEQ */
+            if (operation != TPM_EO_NEQ) {
+                rc = TPM_RC_POLICY;
+            }
+        }
+        else if ((UINT32)offset + operandBSz > (UINT32)operandASz) {
+            rc = TPM_RC_RANGE;
+        }
+        else {
+            rc = FwPolicyEoCompare(operandA + offset, operandB,
+                (int)operandBSz, operation, &pass);
+            if (rc == 0 && !pass) {
+                rc = TPM_RC_POLICY;
+            }
+        }
+    }
+    else if (rc == 0 && operandASz > 0 &&
+            (UINT32)offset + operandBSz > (UINT32)operandASz) {
+        rc = TPM_RC_RANGE;
+    }
+
+#ifdef DEBUG_WOLFTPM
+    if (rc == 0) {
+        printf("fwTPM: PolicyCapability(session=0x%x, cap=0x%x, prop=0x%x, "
+            "offset=%d, op=%d)\n", sess->handle, capability, property,
+            offset, operation);
+    }
+#endif
+
+    if (rc == 0) {
+        dSz = TPM2_GetHashDigestSize(sess->authHash);
+        wcHash = FwGetWcHashType(sess->authHash);
+        if (dSz <= 0)
+            rc = TPM_RC_HASH;
+    }
+    /* argsHash = H(operandB || offset || operation || capability || property) */
+    if (rc == 0) {
+        if (wc_HashInit_ex(hashCtx, wcHash, NULL, INVALID_DEVID) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        else {
+            hashCtxInit = 1;
+        }
+    }
+    if (rc == 0 && operandBSz > 0) {
+        wc_HashUpdate(hashCtx, wcHash, operandB, operandBSz);
+    }
+    if (rc == 0) {
+        FwStoreU16BE(tmpBuf, offset);
+        wc_HashUpdate(hashCtx, wcHash, tmpBuf, 2);
+        FwStoreU16BE(tmpBuf, operation);
+        wc_HashUpdate(hashCtx, wcHash, tmpBuf, 2);
+        FwStoreU32BE(tmpBuf, capability);
+        wc_HashUpdate(hashCtx, wcHash, tmpBuf, 4);
+        FwStoreU32BE(tmpBuf, property);
+        wc_HashUpdate(hashCtx, wcHash, tmpBuf, 4);
         wc_HashFinal(hashCtx, wcHash, argsHash);
         wc_HashFree(hashCtx, wcHash);
         hashCtxInit = 0;
@@ -15276,6 +15847,25 @@ static FWTPM_NvIndex* FwFindNvIndex(FWTPM_CTX* ctx, TPMI_RH_NV_INDEX nvIndex)
     }
     return NULL;
 }
+
+#ifndef FWTPM_NO_READONLY
+/* Table 190: while readOnly is SET, NV_Write, NV_Extend, NV_SetBits,
+ * NV_WriteLock and NV_ReadLock are permitted only on an index defined with
+ * both TPMA_NV_ORDERLY and TPMA_NV_CLEAR_STCLEAR, so the modification cannot
+ * outlive the power cycle that clears Read-Only mode. NV_Increment is denied
+ * outright instead, because the TPM keeps one global increment counter across
+ * all indices. */
+static TPM_RC FwNvReadOnlyCheck(FWTPM_CTX* ctx, const FWTPM_NvIndex* nv)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    UINT32 needed = TPMA_NV_ORDERLY | TPMA_NV_CLEAR_STCLEAR;
+
+    if (ctx->readOnly && (nv->nvPublic.attributes & needed) != needed) {
+        rc = TPM_RC_READ_ONLY;
+    }
+    return rc;
+}
+#endif /* !FWTPM_NO_READONLY */
 #endif /* !FWTPM_NO_NV */
 
 /* NV handle error codes (include handle reference bits per TPM 2.0 spec) */
@@ -15700,6 +16290,60 @@ static TPM_RC FwCmd_NV_ReadPublic(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     return rc;
 }
 
+/* --- TPM2_NV_ReadPublic2 (CC 0x019E) --- */
+/* Identical to TPM2_NV_ReadPublic except the public area is returned as a
+ * TPM2B_NV_PUBLIC_2: a TPM_HT handleType tag followed by the TPMU_NV_PUBLIC_2
+ * arm it selects (Part 2 Tables 238-240). Only TPM_HT_NV_INDEX indices exist
+ * here, and that arm is the same TPMS_NV_PUBLIC the v1.38 command emits.
+ * Part 3 Sec.31.18: the Name is identical between the two commands because
+ * the union tag is not hashed, so FwComputeNvName is reused unchanged. */
+static TPM_RC FwCmd_NV_ReadPublic2(FWTPM_CTX* ctx, TPM2_Packet* cmd,
+    int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    TPMI_RH_NV_INDEX nvHandle;
+    FWTPM_NvIndex* nv;
+    int paramSzPos, paramStart;
+    int markPos;
+    byte nameBuf[2 + TPM_MAX_DIGEST_SIZE];
+    UINT16 nameSz = 0;
+
+    (void)cmdSize;
+
+    TPM2_Packet_ParseU32(cmd, &nvHandle);
+    if (cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
+
+    nv = FwFindNvIndex(ctx, nvHandle);
+    if (nv == NULL) {
+        rc = FW_NV_HANDLE_ERR_1;
+    }
+
+    if (rc == 0) {
+        paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
+
+        /* TPM2B_NV_PUBLIC_2: size + TPMT_NV_PUBLIC_2 */
+        TPM2_Packet_MarkU16(rsp, &markPos);
+        TPM2_Packet_AppendU8(rsp, (UINT8)TPM_HT_NV_INDEX);
+        TPM2_Packet_AppendU32(rsp, nv->nvPublic.nvIndex);
+        TPM2_Packet_AppendU16(rsp, nv->nvPublic.nameAlg);
+        TPM2_Packet_AppendU32(rsp, nv->nvPublic.attributes);
+        TPM2_Packet_AppendU16(rsp, nv->nvPublic.authPolicy.size);
+        TPM2_Packet_AppendBytes(rsp, nv->nvPublic.authPolicy.buffer,
+            nv->nvPublic.authPolicy.size);
+        TPM2_Packet_AppendU16(rsp, nv->nvPublic.dataSize);
+        TPM2_Packet_PlaceU16(rsp, markPos);
+
+        /* TPM2B_NAME: nameAlg || Hash(nvPublic) */
+        FwComputeNvName(nv, nameBuf, &nameSz);
+        TPM2_Packet_AppendU16(rsp, nameSz);
+        TPM2_Packet_AppendBytes(rsp, nameBuf, nameSz);
+
+        FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
+    }
+
+    return rc;
+}
+
 /* --- TPM2_NV_Write (CC 0x0137) --- */
 static TPM_RC FwCmd_NV_Write(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
@@ -15733,6 +16377,13 @@ static TPM_RC FwCmd_NV_Write(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = FwNvCheckAccess(authHandle, nvHandle,
             nv->nvPublic.attributes, 1, ctx->activeCmdAuthIsPolicy[0]);
     }
+
+#ifndef FWTPM_NO_READONLY
+    /* Table 190: conditionally permitted in Read-Only mode */
+    if (rc == 0) {
+        rc = FwNvReadOnlyCheck(ctx, nv);
+    }
+#endif
 
     /* Counter, Bits, and Extend use dedicated commands. PIN indices are not
      * accepted until their counter/limit authorization semantics exist. */
@@ -15901,6 +16552,13 @@ static TPM_RC FwCmd_NV_Extend(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = FwNvCheckAccess(authHandle, nvHandle,
             nv->nvPublic.attributes, 1, ctx->activeCmdAuthIsPolicy[0]);
     }
+
+#ifndef FWTPM_NO_READONLY
+    /* Table 190: conditionally permitted in Read-Only mode */
+    if (rc == 0) {
+        rc = FwNvReadOnlyCheck(ctx, nv);
+    }
+#endif
 
     if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_WRITELOCKED)) {
         rc = TPM_RC_NV_LOCKED;
@@ -16088,6 +16746,13 @@ static TPM_RC FwCmd_NV_WriteLock(FWTPM_CTX* ctx, TPM2_Packet* cmd,
             nv->nvPublic.attributes, 1, ctx->activeCmdAuthIsPolicy[0]);
     }
 
+#ifndef FWTPM_NO_READONLY
+    /* Table 190: conditionally permitted in Read-Only mode */
+    if (rc == 0) {
+        rc = FwNvReadOnlyCheck(ctx, nv);
+    }
+#endif
+
     /* Per TPM 2.0 Part 3 Section 31.5.2: NV_WriteLock requires
      * TPMA_NV_WRITEDEFINE or TPMA_NV_WRITE_STCLEAR */
     if (rc == 0) {
@@ -16136,6 +16801,13 @@ static TPM_RC FwCmd_NV_ReadLock(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = FwNvCheckAccess(authHandle, nvHandle,
             nv->nvPublic.attributes, 0, ctx->activeCmdAuthIsPolicy[0]);
     }
+
+#ifndef FWTPM_NO_READONLY
+    /* Table 190: conditionally permitted in Read-Only mode */
+    if (rc == 0) {
+        rc = FwNvReadOnlyCheck(ctx, nv);
+    }
+#endif
 
     /* Per TPM 2.0 Part 3 Section 31.4.2: NV_ReadLock requires
      * TPMA_NV_READ_STCLEAR */
@@ -16195,6 +16867,13 @@ static TPM_RC FwCmd_NV_SetBits(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         rc = FwNvCheckAccess(authHandle, nvHandle,
             nv->nvPublic.attributes, 1, ctx->activeCmdAuthIsPolicy[0]);
     }
+
+#ifndef FWTPM_NO_READONLY
+    /* Table 190: conditionally permitted in Read-Only mode */
+    if (rc == 0) {
+        rc = FwNvReadOnlyCheck(ctx, nv);
+    }
+#endif
 
     if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_WRITELOCKED)) {
         rc = TPM_RC_NV_LOCKED;
@@ -20607,7 +21286,7 @@ typedef struct {
     UINT8 inHandleCnt;      /* Number of input handles after header */
     UINT8 authHandleCnt;    /* Number of handles requiring authorization */
     UINT8 outHandleCnt;     /* Number of output handles in response */
-    UINT8 encDecFlags;      /* Bit 0: first cmd param is TPM2B (can decrypt) */
+    UINT16 encDecFlags;     /* Bit 0: first cmd param is TPM2B (can decrypt) */
                             /* Bit 1: first rsp param is TPM2B (can encrypt) */
                             /* Bit 2: first auth handle has DUP role */
                             /* Bit 3: command flushes its handle (TPMA_CC.F) */
@@ -20615,6 +21294,7 @@ typedef struct {
                             /* Bit 5: command may update NV (TPMA_CC.nv) */
                             /* Bit 6: command is extensive (TPMA_CC.extensive) */
                             /* Bit 7: command requires TPM_ST_NO_SESSIONS */
+                            /* Bit 8: not permitted in Read-Only mode */
 } FWTPM_CMD_ENTRY;
 
 #ifndef FWTPM_NO_PARAM_ENC
@@ -20641,6 +21321,16 @@ typedef struct {
 #define FW_CMD_MOD_EXTENSIVE    0x40
 #define FW_CMD_FLAG_NO_SESSIONS 0x80
 
+/* Not permitted while readOnly is SET (TPM 2.0 Part 3 Table 190). This is
+ * deliberately not derived from FW_CMD_MOD_NV: Table 190 permits several
+ * NV-updating commands (PCR_Extend, NV_Write on an orderly index) and denies
+ * several that do not update NV (Create, CreateLoaded, PCR_SetAuthValue). */
+#ifndef FWTPM_NO_READONLY
+#define FW_CMD_RO_DENY          0x0100
+#else
+#define FW_CMD_RO_DENY          0  /* Read-Only mode compiled out */
+#endif
+
 /*                                                    inH aH oH flags */
 static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     /* --- Basic (always enabled) --- */
@@ -20657,16 +21347,16 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     { TPM_CC_PCR_Extend,         FwCmd_PCR_Extend,          1, 1, 0, FW_CMD_MOD_NV },
     { TPM_CC_PCR_Reset,          FwCmd_PCR_Reset,           1, 1, 0, FW_CMD_MOD_NV },
     { TPM_CC_PCR_Event,          FwCmd_PCR_Event,            1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_NV },
-    { TPM_CC_PCR_Allocate,       FwCmd_PCR_Allocate,         1, 1, 0, FW_CMD_MOD_NV },
-    { TPM_CC_PCR_SetAuthPolicy,  FwCmd_PCR_SetAuthPolicy,    1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_NV },
-    { TPM_CC_PCR_SetAuthValue,   FwCmd_PCR_SetAuthValue,     1, 1, 0, FW_CMD_FLAG_ENC },
+    { TPM_CC_PCR_Allocate,       FwCmd_PCR_Allocate,         1, 1, 0, FW_CMD_MOD_NV | FW_CMD_RO_DENY },
+    { TPM_CC_PCR_SetAuthPolicy,  FwCmd_PCR_SetAuthPolicy,    1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_NV | FW_CMD_RO_DENY },
+    { TPM_CC_PCR_SetAuthValue,   FwCmd_PCR_SetAuthValue,     1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_RO_DENY },
 #ifndef FWTPM_NO_CLOCK
     { TPM_CC_ReadClock,          FwCmd_ReadClock,            0, 0, 0, 0 },
-    { TPM_CC_ClockSet,           FwCmd_ClockSet,             1, 1, 0, FW_CMD_MOD_NV },
-    { TPM_CC_ClockRateAdjust,    FwCmd_ClockRateAdjust,      1, 1, 0, 0 },
+    { TPM_CC_ClockSet,           FwCmd_ClockSet,             1, 1, 0, FW_CMD_MOD_NV | FW_CMD_RO_DENY },
+    { TPM_CC_ClockRateAdjust,    FwCmd_ClockRateAdjust,      1, 1, 0, FW_CMD_RO_DENY },
 #endif /* !FWTPM_NO_CLOCK */
     /* --- Key management (always enabled, algorithm checks inside) --- */
-    { TPM_CC_CreatePrimary,      FwCmd_CreatePrimary,       1, 1, 1, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
+    { TPM_CC_CreatePrimary,      FwCmd_CreatePrimary,       1, 1, 1, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC | FW_CMD_RO_DENY },
     /* flushHandle is a parameter, not a handle-area handle (Part 3): zero
      * command handles so the dispatcher locates the auth area correctly. */
     { TPM_CC_FlushContext,       FwCmd_FlushContext,         0, 0, 0, FW_CMD_FLAG_NO_SESSIONS },
@@ -20675,16 +21365,22 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     { TPM_CC_ContextLoad,        FwCmd_ContextLoad,          0, 0, 1, FW_CMD_FLAG_NO_SESSIONS },
 #endif /* !FWTPM_NO_CONTEXT */
     { TPM_CC_ReadPublic,         FwCmd_ReadPublic,           1, 0, 0, FW_CMD_FLAG_DEC },
-    { TPM_CC_Clear,              FwCmd_Clear,                1, 1, 0, FW_CMD_MOD_NV | FW_CMD_MOD_EXTENSIVE },
-    { TPM_CC_ClearControl,       FwCmd_ClearControl,         1, 1, 0, FW_CMD_MOD_NV },
-    { TPM_CC_ChangeEPS,          FwCmd_ChangeEPS,            1, 1, 0, FW_CMD_MOD_NV | FW_CMD_MOD_EXTENSIVE },
-    { TPM_CC_ChangePPS,          FwCmd_ChangePPS,            1, 1, 0, FW_CMD_MOD_NV | FW_CMD_MOD_EXTENSIVE },
-    { TPM_CC_HierarchyControl,   FwCmd_HierarchyControl,     1, 1, 0, FW_CMD_MOD_NV | FW_CMD_MOD_EXTENSIVE },
-    { TPM_CC_HierarchyChangeAuth, FwCmd_HierarchyChangeAuth, 1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_NV },
-    { TPM_CC_SetPrimaryPolicy,   FwCmd_SetPrimaryPolicy,     1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_NV },
-    { TPM_CC_EvictControl,       FwCmd_EvictControl,         2, 1, 0, FW_CMD_MOD_NV },
-    { TPM_CC_Create,             FwCmd_Create,               1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
-    { TPM_CC_ObjectChangeAuth,   FwCmd_ObjectChangeAuth,     2, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC | FW_CMD_FLAG_AUTH_ADMIN },
+    { TPM_CC_Clear,              FwCmd_Clear,                1, 1, 0, FW_CMD_MOD_NV | FW_CMD_MOD_EXTENSIVE | FW_CMD_RO_DENY },
+    { TPM_CC_ClearControl,       FwCmd_ClearControl,         1, 1, 0, FW_CMD_MOD_NV | FW_CMD_RO_DENY },
+    { TPM_CC_ChangeEPS,          FwCmd_ChangeEPS,            1, 1, 0, FW_CMD_MOD_NV | FW_CMD_MOD_EXTENSIVE | FW_CMD_RO_DENY },
+    { TPM_CC_ChangePPS,          FwCmd_ChangePPS,            1, 1, 0, FW_CMD_MOD_NV | FW_CMD_MOD_EXTENSIVE | FW_CMD_RO_DENY },
+    { TPM_CC_HierarchyControl,   FwCmd_HierarchyControl,     1, 1, 0, FW_CMD_MOD_NV | FW_CMD_MOD_EXTENSIVE | FW_CMD_RO_DENY },
+    { TPM_CC_HierarchyChangeAuth, FwCmd_HierarchyChangeAuth, 1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_NV | FW_CMD_RO_DENY },
+    { TPM_CC_SetPrimaryPolicy,   FwCmd_SetPrimaryPolicy,     1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_NV | FW_CMD_RO_DENY },
+    { TPM_CC_EvictControl,       FwCmd_EvictControl,         2, 1, 0, FW_CMD_MOD_NV | FW_CMD_RO_DENY },
+#ifndef FWTPM_NO_READONLY
+    /* Permitted in Read-Only mode, so no FW_CMD_RO_DENY: it is the only way
+     * back out of the mode (Part 3 Table 190). */
+    { TPM_CC_ReadOnlyControl,    FwCmd_ReadOnlyControl,      1, 1, 0, 0 },
+#endif
+    { TPM_CC_SetCapability,      FwCmd_SetCapability,        1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_NV | FW_CMD_RO_DENY },
+    { TPM_CC_Create,             FwCmd_Create,               1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC | FW_CMD_RO_DENY },
+    { TPM_CC_ObjectChangeAuth,   FwCmd_ObjectChangeAuth,     2, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC | FW_CMD_FLAG_AUTH_ADMIN | FW_CMD_RO_DENY },
     { TPM_CC_Load,               FwCmd_Load,                 1, 1, 1, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
     { TPM_CC_Sign,               FwCmd_Sign,                 1, 1, 0, FW_CMD_FLAG_ENC },
     { TPM_CC_VerifySignature,    FwCmd_VerifySignature,      1, 0, 0, 0 },
@@ -20748,6 +21444,8 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     { TPM_CC_PolicyPhysicalPresence, FwCmd_PolicyPhysicalPresence, 1, 0, 0, 0 },
 #endif
     { TPM_CC_PolicyCpHash,       FwCmd_PolicyCpHash,         1, 0, 0, 0 },
+    { TPM_CC_PolicyParameters,   FwCmd_PolicyParameters,     1, 0, 0, 0 },
+    { TPM_CC_PolicyCapability,   FwCmd_PolicyCapability,     1, 0, 0, 0 },
     { TPM_CC_PolicyNameHash,     FwCmd_PolicyNameHash,       1, 0, 0, 0 },
     { TPM_CC_PolicyDuplicationSelect, FwCmd_PolicyDuplicationSelect, 1, 0, 0, 0 },
     { TPM_CC_PolicyNvWritten,    FwCmd_PolicyNvWritten,      1, 0, 0, 0 },
@@ -20765,7 +21463,7 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     { TPM_CC_Duplicate,          FwCmd_Duplicate,            2, 1, 0, FW_CMD_FLAG_DEC | FW_CMD_FLAG_AUTH_DUP },
     { TPM_CC_Rewrap,             FwCmd_Rewrap,               2, 1, 0, 0 },
 #endif /* !FWTPM_NO_KEY_MIGRATION */
-    { TPM_CC_CreateLoaded,       FwCmd_CreateLoaded,         1, 1, 1, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
+    { TPM_CC_CreateLoaded,       FwCmd_CreateLoaded,         1, 1, 1, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC | FW_CMD_RO_DENY },
     /* --- Symmetric --- */
 #ifndef NO_AES
 #ifndef FWTPM_NO_SYM_ENCRYPT
@@ -20775,19 +21473,20 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
 #endif
     /* --- NV RAM --- */
 #ifndef FWTPM_NO_NV
-    { TPM_CC_NV_DefineSpace,     FwCmd_NV_DefineSpace,       1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_NV },
-    { TPM_CC_NV_UndefineSpace,   FwCmd_NV_UndefineSpace,     2, 1, 0, FW_CMD_MOD_NV },
-    { TPM_CC_NV_UndefineSpaceSpecial, FwCmd_NV_UndefineSpaceSpecial, 2, 2, 0, FW_CMD_FLAG_AUTH_ADMIN | FW_CMD_MOD_NV },
+    { TPM_CC_NV_DefineSpace,     FwCmd_NV_DefineSpace,       1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_NV | FW_CMD_RO_DENY },
+    { TPM_CC_NV_UndefineSpace,   FwCmd_NV_UndefineSpace,     2, 1, 0, FW_CMD_MOD_NV | FW_CMD_RO_DENY },
+    { TPM_CC_NV_UndefineSpaceSpecial, FwCmd_NV_UndefineSpaceSpecial, 2, 2, 0, FW_CMD_FLAG_AUTH_ADMIN | FW_CMD_MOD_NV | FW_CMD_RO_DENY },
     { TPM_CC_NV_ReadPublic,      FwCmd_NV_ReadPublic,        1, 0, 0, FW_CMD_FLAG_DEC },
+    { TPM_CC_NV_ReadPublic2,     FwCmd_NV_ReadPublic2,       1, 0, 0, FW_CMD_FLAG_DEC },
     { TPM_CC_NV_Write,           FwCmd_NV_Write,             2, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_NV },
     { TPM_CC_NV_Read,            FwCmd_NV_Read,              2, 1, 0, FW_CMD_FLAG_DEC },
     { TPM_CC_NV_Extend,          FwCmd_NV_Extend,            2, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_NV },
-    { TPM_CC_NV_Increment,       FwCmd_NV_Increment,         2, 1, 0, FW_CMD_MOD_NV },
+    { TPM_CC_NV_Increment,       FwCmd_NV_Increment,         2, 1, 0, FW_CMD_MOD_NV | FW_CMD_RO_DENY },
     { TPM_CC_NV_WriteLock,       FwCmd_NV_WriteLock,         2, 1, 0, FW_CMD_MOD_NV },
     { TPM_CC_NV_ReadLock,        FwCmd_NV_ReadLock,          2, 1, 0, FW_CMD_MOD_NV },
     { TPM_CC_NV_SetBits,         FwCmd_NV_SetBits,           2, 1, 0, FW_CMD_MOD_NV },
-    { TPM_CC_NV_ChangeAuth,      FwCmd_NV_ChangeAuth,        1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_AUTH_ADMIN | FW_CMD_MOD_NV },
-    { TPM_CC_NV_GlobalWriteLock, FwCmd_NV_GlobalWriteLock,   1, 1, 0, FW_CMD_MOD_NV },
+    { TPM_CC_NV_ChangeAuth,      FwCmd_NV_ChangeAuth,        1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_AUTH_ADMIN | FW_CMD_MOD_NV | FW_CMD_RO_DENY },
+    { TPM_CC_NV_GlobalWriteLock, FwCmd_NV_GlobalWriteLock,   1, 1, 0, FW_CMD_MOD_NV | FW_CMD_RO_DENY },
 #endif /* !FWTPM_NO_NV */
     /* --- ECC Parameters --- */
 #ifdef HAVE_ECC
@@ -20813,7 +21512,7 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     /* --- Dictionary Attack --- */
 #ifndef FWTPM_NO_DA
     { TPM_CC_DictionaryAttackLockReset, FwCmd_DictionaryAttackLockReset, 1, 1, 0, FW_CMD_MOD_NV },
-    { TPM_CC_DictionaryAttackParameters, FwCmd_DictionaryAttackParameters, 1, 1, 0, FW_CMD_MOD_NV },
+    { TPM_CC_DictionaryAttackParameters, FwCmd_DictionaryAttackParameters, 1, 1, 0, FW_CMD_MOD_NV | FW_CMD_RO_DENY },
 #endif
     /* --- Vendor (optional; off by default, see WOLFTPM_FWTPM_TCG_TEST) --- */
 #ifdef WOLFTPM_FWTPM_TCG_TEST
@@ -21428,6 +22127,18 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
         return TPM_RC_SUCCESS;
     }
 
+#ifndef FWTPM_NO_READONLY
+    /* Read-Only mode (Part 3 Sec.24.9, Table 190). Refused ahead of auth
+     * processing so a denied command cannot consume DA tries or sessions.
+     * The commands Table 190 permits conditionally on NV index attributes
+     * are checked inside their own handlers, not here. */
+    if (ctx->readOnly && (entry->encDecFlags & FW_CMD_RO_DENY)) {
+        *rspSize = FwBuildErrorResponse(rspBuf, rspCap, TPM_ST_NO_SESSIONS,
+            TPM_RC_READ_ONLY);
+        return TPM_RC_SUCCESS;
+    }
+#endif
+
     /* Handle-area transient references are unmarshaled before dispatch. */
     for (transientIdx = 0;
             transientIdx < (int)entry->inHandleCnt && transientIdx < 4;
@@ -21870,6 +22581,25 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                         (int)pSess->cpHashA.size != ccpHashSz ||
                         TPM2_ConstantCompare(pSess->cpHashA.buffer,
                             ccpHash, (word32)ccpHashSz) != 0) {
+                        *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                            TPM_ST_NO_SESSIONS, TPM_RC_POLICY_FAIL);
+                        TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
+                        return TPM_RC_SUCCESS;
+                    }
+                }
+                /* Enforce PolicyParameters: same binding, but the digest is
+                 * computed with the handle Names skipped, so pass a handle
+                 * count of zero (Part 3 Sec.23.24). */
+                if (pSess->paramHash.size > 0) {
+                    byte cpHashNoNames[TPM_MAX_DIGEST_SIZE];
+                    int cpHashNoNamesSz = 0;
+                    if (FwComputeCpHash(pSess->authHash, cmdCode,
+                            cmdBuf, cmdSize, NULL, 0,
+                            ctx, cpStart, cpHashNoNames,
+                            &cpHashNoNamesSz) != 0 ||
+                        (int)pSess->paramHash.size != cpHashNoNamesSz ||
+                        TPM2_ConstantCompare(pSess->paramHash.buffer,
+                            cpHashNoNames, (word32)cpHashNoNamesSz) != 0) {
                         *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
                             TPM_ST_NO_SESSIONS, TPM_RC_POLICY_FAIL);
                         TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));

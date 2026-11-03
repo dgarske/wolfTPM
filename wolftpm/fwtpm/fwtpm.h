@@ -239,6 +239,11 @@
 #define FWTPM_MAX_NV_INDICES   16
 #endif
 
+/* Settable feature configurations reported through TPM_CAP_CONFIGS and
+ * written by TPM2_SetCapability. One slot per TPM_PT_CONFIG_* identifier,
+ * which are numbered contiguously from zero. */
+#define FWTPM_CONFIG_COUNT     (TPM_PT_CONFIG_SPDM_PSK + 1)
+
 /* Maximum data size for a single NV index (per spec 2048, NV_EXTEND = hashSz) */
 #ifndef FWTPM_MAX_NV_DATA
 #define FWTPM_MAX_NV_DATA      2048
@@ -664,6 +669,10 @@ typedef struct FWTPM_Session {
     int hasRequiredLocality;        /* 1 once PolicyLocality has been called */
     UINT32 commandCode;             /* PolicyCommandCode/DuplicationSelect: locked once set */
     TPM2B_DIGEST templateHash;      /* PolicyTemplate: locked once set */
+    /* PolicyParameters: locked once set. Separate from cpHashA because its
+     * digest omits the handle Names (Part 3 Sec.23.24), so the deferred
+     * check has to recompute a different hash. */
+    TPM2B_DIGEST paramHash;
     int checkNvWritten;             /* 1 once PolicyNvWritten has been called */
     int nvWrittenState;             /* PolicyNvWritten writtenSet */
     UINT32 pcrUpdateCounter;        /* PCR update counter seen by PolicyPCR */
@@ -819,6 +828,17 @@ typedef struct FWTPM_CTX {
     int ehDisabled;             /* !ehEnable:   endorsement hierarchy */
     int phDisabled;             /* !phEnable:   platform hierarchy */
     int phNvDisabled;           /* !phEnableNV: platform NV indices */
+#ifndef FWTPM_NO_READONLY
+    /* ReadOnlyControl state. Stored positively, unlike the *Disabled flags
+     * above: 1 = readOnly SET. Same lifecycle as the group, except that TPM
+     * 2.0 Part 2 Table 43 has it CLEAR on Reset/Restart rather than SET. */
+    int readOnly;
+#endif
+    /* TPM2_SetCapability feature configuration, indexed by TPM_PT_CONFIG_*.
+     * Persisted in NV and survives Clear: a lock is for the lifetime of the
+     * part (Part 3 Sec.30.4). */
+    byte configEnable[FWTPM_CONFIG_COUNT];
+    byte configLock[FWTPM_CONFIG_COUNT];
 #ifndef FWTPM_NO_DA
     /* Dictionary Attack protection state */
     UINT32 daFailedTries;       /* Failed auth count, persisted in NV */

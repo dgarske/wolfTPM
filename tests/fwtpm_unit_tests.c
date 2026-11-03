@@ -22010,6 +22010,795 @@ static void test_fwtpm_fixed_properties_complete(void)
     fwtpm_pass("Complete fixed property capabilities:", 0);
 }
 
+#ifndef FWTPM_NO_READONLY
+/* Read the readOnly bit of TPMA_STARTUP_CLEAR via GetCapability. */
+static int fwtpm_test_read_only_bit(FWTPM_CTX* ctx)
+{
+    int rc, rspSize, cmdSz, pos;
+
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_TPM_PROPERTIES); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_PT_STARTUP_CLEAR); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 1); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    if (rc != TPM_RC_SUCCESS || GetRspRC(gRsp) != TPM_RC_SUCCESS) {
+        return -1;
+    }
+    /* moreData(1) | capability(4) | count(4) | property(4) | value(4) */
+    pos = TPM2_HEADER_SIZE + 1 + 4 + 4 + 4;
+    if (pos + 4 > rspSize) {
+        return -1;
+    }
+    return (GetU32BE(gRsp + pos) & TPMA_STARTUP_CLEAR_readOnly) ? 1 : 0;
+}
+
+/* Build TPM2_ReadOnlyControl(authHandle, state) with a password session. */
+static int fwtpm_build_read_only_control(UINT32 authHandle, byte state)
+{
+    int cmdSz = 0;
+
+    PutU16BE(gCmd + cmdSz, TPM_ST_SESSIONS); cmdSz += 2;
+    PutU32BE(gCmd + cmdSz, 0); cmdSz += 4; /* size placeholder */
+    PutU32BE(gCmd + cmdSz, TPM_CC_ReadOnlyControl); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, authHandle); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 9); cmdSz += 4;  /* authAreaSize */
+    PutU32BE(gCmd + cmdSz, TPM_RS_PW); cmdSz += 4;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;  /* nonce size */
+    gCmd[cmdSz++] = 0;                      /* attributes */
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;  /* hmac size (empty password) */
+    gCmd[cmdSz++] = state;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    return cmdSz;
+}
+
+/* TPM2_ReadOnlyControl and the Part 3 Table 190 enforcement matrix. */
+static void test_fwtpm_read_only_mode(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz;
+
+    memset(&ctx, 0, sizeof(ctx));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, 0);
+
+    /* readOnly starts CLEAR */
+    AssertIntEQ(fwtpm_test_read_only_bit(&ctx), 0);
+
+    /* A state other than YES/NO is rejected before anything changes */
+    cmdSz = fwtpm_build_read_only_control(TPM_RH_PLATFORM, 2);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_VALUE);
+    AssertIntEQ(fwtpm_test_read_only_bit(&ctx), 0);
+
+    /* A command truncated before the state byte must be a size error, not a
+     * silent request to leave Read-Only mode */
+    cmdSz = fwtpm_build_read_only_control(TPM_RH_PLATFORM, 1);
+    cmdSz -= 1;                         /* drop the trailing state byte */
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_SIZE);
+    AssertIntEQ(fwtpm_test_read_only_bit(&ctx), 0);
+
+    /* Only platformAuth may change the mode */
+    cmdSz = fwtpm_build_read_only_control(TPM_RH_OWNER, 1);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_TYPE);
+    AssertIntEQ(fwtpm_test_read_only_bit(&ctx), 0);
+
+    /* Enable Read-Only mode */
+    cmdSz = fwtpm_build_read_only_control(TPM_RH_PLATFORM, 1);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(fwtpm_test_read_only_bit(&ctx), 1);
+
+    /* The truncated form must not be able to turn the mode back off: this is
+     * the fail-open direction, so assert the bit is still SET afterwards */
+    cmdSz = fwtpm_build_read_only_control(TPM_RH_PLATFORM, 0);
+    cmdSz -= 1;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_COMMAND_SIZE);
+    AssertIntEQ(fwtpm_test_read_only_bit(&ctx), 1);
+
+    /* Table 190: TPM2_Clear is Not Permitted */
+    cmdSz = 0;
+    PutU16BE(gCmd + cmdSz, TPM_ST_SESSIONS); cmdSz += 2;
+    PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_CC_Clear); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_RH_PLATFORM); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 9); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_RS_PW); cmdSz += 4;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+    gCmd[cmdSz++] = 0;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_READ_ONLY);
+
+    /* Table 190: TPM2_GetCapability stays Permitted (already exercised by
+     * the readOnly reads above), and so does TPM2_PCR_Extend */
+    cmdSz = 0;
+    PutU16BE(gCmd + cmdSz, TPM_ST_SESSIONS); cmdSz += 2;
+    PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_CC_PCR_Extend); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, FW_TEST_PCR); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 9); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_RS_PW); cmdSz += 4;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+    gCmd[cmdSz++] = 0;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+    PutU32BE(gCmd + cmdSz, 1); cmdSz += 4;  /* TPML_DIGEST_VALUES count */
+    PutU16BE(gCmd + cmdSz, TPM_ALG_SHA256); cmdSz += 2;
+    memset(gCmd + cmdSz, 0x42, 32); cmdSz += 32;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* ReadOnlyControl itself is Permitted, so the mode can be left */
+    cmdSz = fwtpm_build_read_only_control(TPM_RH_PLATFORM, 0);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(fwtpm_test_read_only_bit(&ctx), 0);
+
+    /* Startup(CLEAR) clears readOnly (Part 2 Table 43) */
+    cmdSz = fwtpm_build_read_only_control(TPM_RH_PLATFORM, 1);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(fwtpm_test_read_only_bit(&ctx), 1);
+    FWTPM_Cleanup(&ctx);
+
+    memset(&ctx, 0, sizeof(ctx));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, 0);
+    AssertIntEQ(fwtpm_test_read_only_bit(&ctx), 0);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("ReadOnlyControl + Table 190 enforcement:", 0);
+}
+
+#ifndef FWTPM_NO_NV
+/* Table 190: NV_Write is conditionally permitted in Read-Only mode, only on
+ * an index carrying both TPMA_NV_ORDERLY and TPMA_NV_CLEAR_STCLEAR. */
+static void test_fwtpm_read_only_nv_conditional(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz;
+    int i;
+    UINT32 idx[2];
+    UINT32 attrs[2];
+
+    idx[0] = 0x01800001;  /* plain ordinary index */
+    idx[1] = 0x01800002;  /* orderly + clear_stclear */
+    attrs[0] = TPMA_NV_AUTHWRITE | TPMA_NV_AUTHREAD;
+    attrs[1] = TPMA_NV_AUTHWRITE | TPMA_NV_AUTHREAD |
+        TPMA_NV_ORDERLY | TPMA_NV_CLEAR_STCLEAR;
+
+    memset(&ctx, 0, sizeof(ctx));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, 0);
+
+    for (i = 0; i < 2; i++) {
+        /* NV_DefineSpace under owner auth */
+        cmdSz = 0;
+        PutU16BE(gCmd + cmdSz, TPM_ST_SESSIONS); cmdSz += 2;
+        PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
+        PutU32BE(gCmd + cmdSz, TPM_CC_NV_DefineSpace); cmdSz += 4;
+        PutU32BE(gCmd + cmdSz, TPM_RH_OWNER); cmdSz += 4;
+        PutU32BE(gCmd + cmdSz, 9); cmdSz += 4;
+        PutU32BE(gCmd + cmdSz, TPM_RS_PW); cmdSz += 4;
+        PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+        gCmd[cmdSz++] = 0;
+        PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+        PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;  /* auth TPM2B size 0 */
+        PutU16BE(gCmd + cmdSz, 14); cmdSz += 2; /* nvPublic size */
+        PutU32BE(gCmd + cmdSz, idx[i]); cmdSz += 4;
+        PutU16BE(gCmd + cmdSz, TPM_ALG_SHA256); cmdSz += 2;
+        PutU32BE(gCmd + cmdSz, attrs[i]); cmdSz += 4;
+        PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;  /* authPolicy size */
+        PutU16BE(gCmd + cmdSz, 8); cmdSz += 2;  /* dataSize */
+        PutU32BE(gCmd + 2, (UINT32)cmdSz);
+        rspSize = 0;
+        rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+        AssertIntEQ(rc, TPM_RC_SUCCESS);
+        AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    }
+
+    /* Enter Read-Only mode */
+    cmdSz = fwtpm_build_read_only_control(TPM_RH_PLATFORM, 1);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* Plain index is denied; orderly + clear_stclear index is permitted */
+    for (i = 0; i < 2; i++) {
+        cmdSz = 0;
+        PutU16BE(gCmd + cmdSz, TPM_ST_SESSIONS); cmdSz += 2;
+        PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
+        PutU32BE(gCmd + cmdSz, TPM_CC_NV_Write); cmdSz += 4;
+        PutU32BE(gCmd + cmdSz, idx[i]); cmdSz += 4;  /* authHandle = index */
+        PutU32BE(gCmd + cmdSz, idx[i]); cmdSz += 4;  /* nvIndex */
+        PutU32BE(gCmd + cmdSz, 9); cmdSz += 4;
+        PutU32BE(gCmd + cmdSz, TPM_RS_PW); cmdSz += 4;
+        PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+        gCmd[cmdSz++] = 0;
+        PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+        PutU16BE(gCmd + cmdSz, 4); cmdSz += 2;  /* data size */
+        memset(gCmd + cmdSz, 0xA5, 4); cmdSz += 4;
+        PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;  /* offset */
+        PutU32BE(gCmd + 2, (UINT32)cmdSz);
+        rspSize = 0;
+        rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+        AssertIntEQ(rc, TPM_RC_SUCCESS);
+        if (i == 0) {
+            AssertIntEQ(GetRspRC(gRsp), TPM_RC_READ_ONLY);
+        }
+        else {
+            AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+        }
+    }
+
+    /* NV_Increment is denied outright, whatever the index attributes */
+    cmdSz = 0;
+    PutU16BE(gCmd + cmdSz, TPM_ST_SESSIONS); cmdSz += 2;
+    PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_CC_NV_Increment); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, idx[1]); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, idx[1]); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 9); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_RS_PW); cmdSz += 4;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+    gCmd[cmdSz++] = 0;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_READ_ONLY);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Read-Only mode conditional NV rules:", 0);
+}
+#endif /* !FWTPM_NO_NV */
+#endif /* !FWTPM_NO_READONLY */
+#ifndef FWTPM_NO_NV
+
+/* TPM2_NV_ReadPublic2 returns the same public area and the byte-identical
+ * Name as TPM2_NV_ReadPublic, wrapped in a TPM2B_NV_PUBLIC_2 whose inner
+ * TPMT_NV_PUBLIC_2 carries a one-byte TPM_HT handleType tag in front
+ * (Part 2 Tables 238-240, Part 3 Sec.31.18). */
+static void test_fwtpm_nv_readpublic2(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz;
+    UINT32 idx = 0x01800011;
+    UINT16 pubSz1, pubSz2, nameSz1, nameSz2;
+    byte pub1[64], name1[2 + TPM_MAX_DIGEST_SIZE];
+    byte pub2[64], name2[2 + TPM_MAX_DIGEST_SIZE];
+    int pos;
+
+    memset(&ctx, 0, sizeof(ctx));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, 0);
+
+    /* Define an ordinary index under owner auth */
+    cmdSz = 0;
+    PutU16BE(gCmd + cmdSz, TPM_ST_SESSIONS); cmdSz += 2;
+    PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_CC_NV_DefineSpace); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_RH_OWNER); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 9); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_RS_PW); cmdSz += 4;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+    gCmd[cmdSz++] = 0;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;  /* auth TPM2B size 0 */
+    PutU16BE(gCmd + cmdSz, 14); cmdSz += 2; /* nvPublic size */
+    PutU32BE(gCmd + cmdSz, idx); cmdSz += 4;
+    PutU16BE(gCmd + cmdSz, TPM_ALG_SHA256); cmdSz += 2;
+    PutU32BE(gCmd + cmdSz, TPMA_NV_AUTHWRITE | TPMA_NV_AUTHREAD);
+    cmdSz += 4;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;  /* authPolicy size */
+    PutU16BE(gCmd + cmdSz, 8); cmdSz += 2;  /* dataSize */
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* NV_ReadPublic */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_NV_ReadPublic);
+    PutU32BE(gCmd + cmdSz, idx); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pos = TPM2_HEADER_SIZE;
+    pubSz1 = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntLE(pubSz1, (UINT16)sizeof(pub1));
+    memcpy(pub1, gRsp + pos, pubSz1); pos += pubSz1;
+    nameSz1 = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntLE(nameSz1, (UINT16)sizeof(name1));
+    memcpy(name1, gRsp + pos, nameSz1);
+
+    /* NV_ReadPublic2 */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+        TPM_CC_NV_ReadPublic2);
+    PutU32BE(gCmd + cmdSz, idx); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pos = TPM2_HEADER_SIZE;
+    pubSz2 = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntLE(pubSz2, (UINT16)sizeof(pub2));
+    memcpy(pub2, gRsp + pos, pubSz2); pos += pubSz2;
+    nameSz2 = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntLE(nameSz2, (UINT16)sizeof(name2));
+    memcpy(name2, gRsp + pos, nameSz2);
+
+    /* The outer size must account for the extra handleType byte */
+    AssertIntEQ(pubSz2, pubSz1 + 1);
+    /* handleType tag, then the identical TPMS_NV_PUBLIC body */
+    AssertIntEQ(pub2[0], TPM_HT_NV_INDEX);
+    AssertIntEQ(memcmp(pub2 + 1, pub1, pubSz1), 0);
+    /* Part 3 Sec.31.18: the Name is identical between the two commands */
+    AssertIntEQ(nameSz2, nameSz1);
+    AssertIntEQ(memcmp(name2, name1, nameSz1), 0);
+
+    /* An undefined index is still a handle error */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+        TPM_CC_NV_ReadPublic2);
+    PutU32BE(gCmd + cmdSz, 0x018000FEu); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntNE(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("NV_ReadPublic2 matches NV_ReadPublic:", 0);
+}
+#endif /* !FWTPM_NO_NV */
+
+/* Build TPM2_SetCapability(authHandle, capability, config, enable, lock). */
+static int fwtpm_build_set_capability(UINT32 authHandle, UINT32 capability,
+    UINT32 configuration, byte enable, byte lock)
+{
+    int cmdSz = 0;
+
+    PutU16BE(gCmd + cmdSz, TPM_ST_SESSIONS); cmdSz += 2;
+    PutU32BE(gCmd + cmdSz, 0); cmdSz += 4; /* size placeholder */
+    PutU32BE(gCmd + cmdSz, TPM_CC_SetCapability); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, authHandle); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 9); cmdSz += 4;  /* authAreaSize */
+    PutU32BE(gCmd + cmdSz, TPM_RS_PW); cmdSz += 4;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;  /* nonce size */
+    gCmd[cmdSz++] = 0;                      /* attributes */
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;  /* hmac size */
+    /* TPM2B_SET_CAPABILITY_DATA */
+    PutU16BE(gCmd + cmdSz, 10); cmdSz += 2;
+    PutU32BE(gCmd + cmdSz, capability); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, configuration); cmdSz += 4;
+    gCmd[cmdSz++] = enable;
+    gCmd[cmdSz++] = lock;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    return cmdSz;
+}
+
+/* Read one config's enable/lock through GetCapability(TPM_CAP_CONFIGS). */
+static int fwtpm_get_config(FWTPM_CTX* ctx, UINT32 configuration,
+    byte* enable, byte* lock)
+{
+    int cmdSz, rspSize = 0, rc, pos;
+
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_CONFIGS); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, configuration); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 1); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rc = FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    if (rc != TPM_RC_SUCCESS || GetRspRC(gRsp) != TPM_RC_SUCCESS) {
+        return -1;
+    }
+    /* moreData(1) | capability(4) | count(4) | configuration(4) | e | l */
+    pos = TPM2_HEADER_SIZE + 1 + 4;
+    if (GetU32BE(gRsp + pos) != 1) {
+        return -1;
+    }
+    pos += 4;
+    if (GetU32BE(gRsp + pos) != configuration) {
+        return -1;
+    }
+    pos += 4;
+    if (pos + 2 > rspSize) {
+        return -1;
+    }
+    *enable = gRsp[pos];
+    *lock = gRsp[pos + 1];
+    return 0;
+}
+
+/* TPM2_SetCapability over TPM_CAP_CONFIGS, including the lifetime lock. */
+static void test_fwtpm_set_capability(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz;
+    byte enable = 0xFF, lock = 0xFF;
+
+    memset(&ctx, 0, sizeof(ctx));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, 0);
+
+    /* Defaults are clear */
+    AssertIntEQ(fwtpm_get_config(&ctx, TPM_PT_CONFIG_SPDM_PSK,
+        &enable, &lock), 0);
+    AssertIntEQ(enable, 0);
+    AssertIntEQ(lock, 0);
+
+    /* Only platformAuth may write */
+    cmdSz = fwtpm_build_set_capability(TPM_RH_OWNER, TPM_CAP_CONFIGS,
+        TPM_PT_CONFIG_SPDM_PSK, 1, 0);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_TYPE);
+
+    /* A capability other than TPM_CAP_CONFIGS is refused */
+    cmdSz = fwtpm_build_set_capability(TPM_RH_PLATFORM,
+        TPM_CAP_TPM_PROPERTIES, 0, 1, 0);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_VALUE);
+
+    /* An unknown configuration identifier is refused */
+    cmdSz = fwtpm_build_set_capability(TPM_RH_PLATFORM, TPM_CAP_CONFIGS,
+        0x1234, 1, 0);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_VALUE);
+
+    /* Enable without locking, then read it back */
+    cmdSz = fwtpm_build_set_capability(TPM_RH_PLATFORM, TPM_CAP_CONFIGS,
+        TPM_PT_CONFIG_SPDM_PSK, 1, 0);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(fwtpm_get_config(&ctx, TPM_PT_CONFIG_SPDM_PSK,
+        &enable, &lock), 0);
+    AssertIntEQ(enable, 1);
+    AssertIntEQ(lock, 0);
+
+    /* Still writable while unlocked */
+    cmdSz = fwtpm_build_set_capability(TPM_RH_PLATFORM, TPM_CAP_CONFIGS,
+        TPM_PT_CONFIG_SPDM_PSK, 0, 0);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* Enable and lock together */
+    cmdSz = fwtpm_build_set_capability(TPM_RH_PLATFORM, TPM_CAP_CONFIGS,
+        TPM_PT_CONFIG_SPDM_PSK, 1, 1);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    AssertIntEQ(fwtpm_get_config(&ctx, TPM_PT_CONFIG_SPDM_PSK,
+        &enable, &lock), 0);
+    AssertIntEQ(enable, 1);
+    AssertIntEQ(lock, 1);
+
+    /* A locked configuration cannot be written again */
+    cmdSz = fwtpm_build_set_capability(TPM_RH_PLATFORM, TPM_CAP_CONFIGS,
+        TPM_PT_CONFIG_SPDM_PSK, 0, 0);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_VALUE);
+    AssertIntEQ(fwtpm_get_config(&ctx, TPM_PT_CONFIG_SPDM_PSK,
+        &enable, &lock), 0);
+    AssertIntEQ(enable, 1);
+    AssertIntEQ(lock, 1);
+
+    /* A different configuration is unaffected by that lock */
+    cmdSz = fwtpm_build_set_capability(TPM_RH_PLATFORM, TPM_CAP_CONFIGS,
+        TPM_PT_CONFIG_CHANGEEPS, 1, 0);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+#ifndef FWTPM_NO_READONLY
+    /* Table 190: SetCapability is Not Permitted in Read-Only mode */
+    cmdSz = fwtpm_build_read_only_control(TPM_RH_PLATFORM, 1);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    cmdSz = fwtpm_build_set_capability(TPM_RH_PLATFORM, TPM_CAP_CONFIGS,
+        TPM_PT_CONFIG_TPMID_NV, 1, 0);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_READ_ONLY);
+#endif /* !FWTPM_NO_READONLY */
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("SetCapability TPM_CAP_CONFIGS + lock:", 0);
+}
+
+#ifndef FWTPM_NO_POLICY
+/* Build TPM2_PolicyCapability(session, operandB, offset, op, cap, prop). */
+static int fwtpm_build_policy_capability(UINT32 sessHandle,
+    const byte* operandB, UINT16 operandBSz, UINT16 offset, UINT16 operation,
+    UINT32 capability, UINT32 property)
+{
+    int cmdSz;
+
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+        TPM_CC_PolicyCapability);
+    PutU32BE(gCmd + cmdSz, sessHandle); cmdSz += 4;
+    PutU16BE(gCmd + cmdSz, operandBSz); cmdSz += 2;
+    if (operandBSz > 0) {
+        memcpy(gCmd + cmdSz, operandB, operandBSz);
+        cmdSz += operandBSz;
+    }
+    PutU16BE(gCmd + cmdSz, offset); cmdSz += 2;
+    PutU16BE(gCmd + cmdSz, operation); cmdSz += 2;
+    PutU32BE(gCmd + cmdSz, capability); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, property); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    return cmdSz;
+}
+
+/* Read a policy session's digest with TPM2_PolicyGetDigest. */
+static int fwtpm_policy_get_digest(FWTPM_CTX* ctx, UINT32 sessHandle,
+    byte* out)
+{
+    int cmdSz, rspSize = 0, rc;
+    UINT16 dSz;
+
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+        TPM_CC_PolicyGetDigest);
+    PutU32BE(gCmd + cmdSz, sessHandle); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rc = FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    if (rc != TPM_RC_SUCCESS || GetRspRC(gRsp) != TPM_RC_SUCCESS) {
+        return -1;
+    }
+    dSz = GetU16BE(gRsp + TPM2_HEADER_SIZE);
+    if (dSz > WC_SHA256_DIGEST_SIZE ||
+            TPM2_HEADER_SIZE + 2 + (int)dSz > rspSize) {
+        return -1;
+    }
+    memcpy(out, gRsp + TPM2_HEADER_SIZE + 2, dSz);
+    return (int)dSz;
+}
+
+/* Release a session slot; FWTPM_MAX_SESSIONS is small, so tests that start
+ * several sessions in sequence have to flush as they go. */
+static void fwtpm_flush_handle(FWTPM_CTX* ctx, UINT32 handle)
+{
+    int cmdSz, rspSize = 0;
+
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_FlushContext);
+    PutU32BE(gCmd + cmdSz, handle); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+}
+
+/* TPM2_PolicyCapability, using the spec's own motivating case: a policy
+ * bound to TPM_PT_REVISION at offset 4 of the TPMS_TAGGED_PROPERTY. */
+static void test_fwtpm_policy_capability(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz, pos;
+    UINT32 sess, trialSess;
+    UINT32 revision;
+    byte operandB[4];
+    byte digestReal[WC_SHA256_DIGEST_SIZE];
+    byte digestTrial[WC_SHA256_DIGEST_SIZE];
+    int dRealSz, dTrialSz;
+
+    memset(&ctx, 0, sizeof(ctx));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, 0);
+
+    /* Learn the TPM's own reported revision */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_GetCapability);
+    PutU32BE(gCmd + cmdSz, TPM_CAP_TPM_PROPERTIES); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_PT_REVISION); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 1); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pos = TPM2_HEADER_SIZE + 1 + 4 + 4;
+    AssertIntEQ(GetU32BE(gRsp + pos), TPM_PT_REVISION);
+    revision = GetU32BE(gRsp + pos + 4);
+
+    /* Matching revision passes */
+    PutU32BE(operandB, revision);
+    sess = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sess, 0);
+    cmdSz = fwtpm_build_policy_capability(sess, operandB, 4, 4, TPM_EO_EQ,
+        TPM_CAP_TPM_PROPERTIES, TPM_PT_REVISION);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    dRealSz = fwtpm_policy_get_digest(&ctx, sess, digestReal);
+    AssertIntEQ(dRealSz, WC_SHA256_DIGEST_SIZE);
+
+    /* A trial session records the same digest without evaluating */
+    trialSess = StartSessionHelper(&ctx, TPM_SE_TRIAL);
+    AssertIntNE(trialSess, 0);
+    cmdSz = fwtpm_build_policy_capability(trialSess, operandB, 4, 4,
+        TPM_EO_EQ, TPM_CAP_TPM_PROPERTIES, TPM_PT_REVISION);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    dTrialSz = fwtpm_policy_get_digest(&ctx, trialSess, digestTrial);
+    AssertIntEQ(dTrialSz, dRealSz);
+    AssertIntEQ(memcmp(digestReal, digestTrial, (size_t)dRealSz), 0);
+    fwtpm_flush_handle(&ctx, sess);
+    fwtpm_flush_handle(&ctx, trialSess);
+
+    /* A non-matching value fails the assertion */
+    PutU32BE(operandB, revision + 1);
+    sess = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sess, 0);
+    cmdSz = fwtpm_build_policy_capability(sess, operandB, 4, 4, TPM_EO_EQ,
+        TPM_CAP_TPM_PROPERTIES, TPM_PT_REVISION);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_POLICY);
+    fwtpm_flush_handle(&ctx, sess);
+
+    /* Part 3 Sec.23.23: TPM_CAP_PCRS is explicitly rejected */
+    PutU32BE(operandB, 0);
+    sess = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sess, 0);
+    cmdSz = fwtpm_build_policy_capability(sess, operandB, 4, 0, TPM_EO_EQ,
+        TPM_CAP_PCRS, 0);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_VALUE);
+    fwtpm_flush_handle(&ctx, sess);
+
+    /* An absent property fails, except under TPM_EO_NEQ */
+    PutU16BE(operandB, 0);
+    sess = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sess, 0);
+    cmdSz = fwtpm_build_policy_capability(sess, operandB, 2, 0, TPM_EO_EQ,
+        TPM_CAP_ECC_CURVES, 0xFEED);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_POLICY);
+    fwtpm_flush_handle(&ctx, sess);
+
+    sess = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sess, 0);
+    cmdSz = fwtpm_build_policy_capability(sess, operandB, 2, 0, TPM_EO_NEQ,
+        TPM_CAP_ECC_CURVES, 0xFEED);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    fwtpm_flush_handle(&ctx, sess);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PolicyCapability on TPM_PT_REVISION:", 0);
+}
+
+/* TPM2_PolicyParameters: size check and the shared command-binding slot. */
+static void test_fwtpm_policy_parameters(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz;
+    UINT32 sess;
+    byte pHash[WC_SHA256_DIGEST_SIZE];
+
+    memset(pHash, 0x5C, sizeof(pHash));
+
+    memset(&ctx, 0, sizeof(ctx));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, 0);
+
+    sess = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sess, 0);
+
+    /* A wrong-size pHash is rejected */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+        TPM_CC_PolicyParameters);
+    PutU32BE(gCmd + cmdSz, sess); cmdSz += 4;
+    PutU16BE(gCmd + cmdSz, 8); cmdSz += 2;
+    memcpy(gCmd + cmdSz, pHash, 8); cmdSz += 8;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SIZE);
+
+    /* A correctly sized pHash is accepted */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+        TPM_CC_PolicyParameters);
+    PutU32BE(gCmd + cmdSz, sess); cmdSz += 4;
+    PutU16BE(gCmd + cmdSz, WC_SHA256_DIGEST_SIZE); cmdSz += 2;
+    memcpy(gCmd + cmdSz, pHash, WC_SHA256_DIGEST_SIZE);
+    cmdSz += WC_SHA256_DIGEST_SIZE;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* PolicyCpHash afterwards collides on the shared binding slot */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_PolicyCpHash);
+    PutU32BE(gCmd + cmdSz, sess); cmdSz += 4;
+    PutU16BE(gCmd + cmdSz, WC_SHA256_DIGEST_SIZE); cmdSz += 2;
+    memcpy(gCmd + cmdSz, pHash, WC_SHA256_DIGEST_SIZE);
+    cmdSz += WC_SHA256_DIGEST_SIZE;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_CPHASH);
+
+    /* So does PolicyDuplicationSelect, which writes nameHash into the same
+     * slot. The exclusion has to be symmetric in every direction. */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0,
+        TPM_CC_PolicyDuplicationSelect);
+    PutU32BE(gCmd + cmdSz, sess); cmdSz += 4;
+    PutU16BE(gCmd + cmdSz, WC_SHA256_DIGEST_SIZE); cmdSz += 2;
+    memcpy(gCmd + cmdSz, pHash, WC_SHA256_DIGEST_SIZE);
+    cmdSz += WC_SHA256_DIGEST_SIZE;
+    PutU16BE(gCmd + cmdSz, WC_SHA256_DIGEST_SIZE); cmdSz += 2;
+    memcpy(gCmd + cmdSz, pHash, WC_SHA256_DIGEST_SIZE);
+    cmdSz += WC_SHA256_DIGEST_SIZE;
+    gCmd[cmdSz++] = 0; /* includeObject = NO */
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_CPHASH);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("PolicyParameters binding slot:", 0);
+}
+#endif /* !FWTPM_NO_POLICY */
+
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 #else
@@ -22055,6 +22844,20 @@ int fwtpm_unit_tests(int argc, char *argv[])
     if (argc == 1) {
         test_fwtpm_resource_properties();
         test_fwtpm_fixed_properties_complete();
+#ifndef FWTPM_NO_READONLY
+        test_fwtpm_read_only_mode();
+#ifndef FWTPM_NO_NV
+        test_fwtpm_read_only_nv_conditional();
+#endif
+#endif
+#ifndef FWTPM_NO_NV
+        test_fwtpm_nv_readpublic2();
+#endif
+        test_fwtpm_set_capability();
+#ifndef FWTPM_NO_POLICY
+        test_fwtpm_policy_capability();
+        test_fwtpm_policy_parameters();
+#endif
 #ifndef FWTPM_NO_CONTEXT
         test_fwtpm_active_session_capacity();
 #endif
