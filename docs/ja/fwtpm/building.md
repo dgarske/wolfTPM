@@ -190,6 +190,7 @@ FIFO とコマンドバッファの 8192 への拡大は、MLDSA-65 または ML
 | `FWTPM_NO_CONTEXT` | 未定義 | `ContextSave`、`ContextLoad` (`FlushContext` は維持されます)、および `FWTPM_CTX` 内の起動ごとのコンテキスト保護鍵と保存済みコンテキストのリプレイリスト |
 | `FWTPM_NO_SYM_ENCRYPT` | 未定義 | `EncryptDecrypt`、`EncryptDecrypt2` |
 | `FWTPM_NO_CLOCK` | 未定義 | `ReadClock`、`ClockSet`、`ClockRateAdjust` |
+| `FWTPM_NO_ECC_ENCRYPT` | wolfSSL が `WOLFSSL_PUBLIC_ECC_ADD_DBL` を定義しない場合は自動設定 | `ECC_Encrypt`、`ECC_Decrypt`。どちらも ECDH 共有点の全体を必要とするため、`ZGen_2Phase` と同じ RNG ブラインド付き乗算を使用し、ブラインドなしの乗算にフォールバックするのではなく同じ条件で無効化されます |
 | `FWTPM_NO_READONLY` | 未定義 | `ReadOnlyControl`、ディスパッチャにおける Version 184 読み取り専用モードの強制、条件付きの NV チェック、`TPMA_STARTUP_CLEAR` の `readOnly` ビット、および `FWTPM_CTX` の `readOnly` フィールド。NV の正常シャットダウンマーカーは短い従来の形式に戻りますが、読み取り専用モードを持つビルドが書き込んだマーカーは引き続き受け付けられ、そのビットは無視されます |
 
 コマンドグループを削除すると、ディスパッチテーブルから導出される `TPM2_GetCapability(TPM_CAP_COMMANDS)` の通知と `TPM_PT_TOTAL_COMMANDS` の数からも、そのグループが削除されます。`WOLFTPM_MLDSA` をビルドする場合、ML-DSA の検証シーケンスがメッセージを `SequenceUpdate` 経由でストリーミングするため、`FWTPM_NO_HASH_CMDS` の下でも `SequenceUpdate` のみは維持されます。`SequenceComplete` は共有されません (ML-DSA のシーケンスは `TPM2_SignSequenceComplete` と `TPM2_VerifySequenceComplete` で完了します)。そのため、決して成功しないコマンドとして通知されることがないよう、他のハッシュコマンドとともに除外されます。

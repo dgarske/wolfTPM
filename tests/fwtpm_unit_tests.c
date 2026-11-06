@@ -22381,7 +22381,287 @@ static void test_fwtpm_nv_readpublic2(void)
     FWTPM_Cleanup(&ctx);
     fwtpm_pass("NV_ReadPublic2 matches NV_ReadPublic:", 0);
 }
+
+/* Build TPM2_NV_DefineSpace or _2 for an ordinary index. For the _2 form the
+ * TPM2B_NV_PUBLIC_2 carries a TPM_HT handleType ahead of the body. */
+static int fwtpm_build_nv_define(UINT32 cc, UINT32 idx, UINT32 attrs,
+    int withHandleType, byte handleType)
+{
+    int cmdSz = 0;
+
+    PutU16BE(gCmd + cmdSz, TPM_ST_SESSIONS); cmdSz += 2;
+    PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, cc); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_RH_OWNER); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 9); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_RS_PW); cmdSz += 4;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+    gCmd[cmdSz++] = 0;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;  /* TPM2B_AUTH, empty */
+    PutU16BE(gCmd + cmdSz, withHandleType ? 15 : 14); cmdSz += 2;
+    if (withHandleType) {
+        gCmd[cmdSz++] = handleType;
+    }
+    PutU32BE(gCmd + cmdSz, idx); cmdSz += 4;
+    PutU16BE(gCmd + cmdSz, TPM_ALG_SHA256); cmdSz += 2;
+    PutU32BE(gCmd + cmdSz, attrs); cmdSz += 4;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;  /* authPolicy */
+    PutU16BE(gCmd + cmdSz, 8); cmdSz += 2;  /* dataSize */
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    return cmdSz;
+}
+
+/* TPM2_NV_DefineSpace2 defines the same index as TPM2_NV_DefineSpace once
+ * the TPM_HT_NV_INDEX selector is accounted for, and refuses any other
+ * handle type. */
+static void test_fwtpm_nv_definespace2(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz;
+    UINT32 a = 0x01800021, b = 0x01800022;
+    UINT32 attrs = TPMA_NV_AUTHWRITE | TPMA_NV_AUTHREAD;
+    UINT16 pubSzA, pubSzB, nameSzA, nameSzB;
+    byte nameA[2 + TPM_MAX_DIGEST_SIZE], nameB[2 + TPM_MAX_DIGEST_SIZE];
+    int pos;
+
+    memset(&ctx, 0, sizeof(ctx));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, 0);
+
+    /* An unsupported handle type is refused, and defines nothing */
+    cmdSz = fwtpm_build_nv_define(TPM_CC_NV_DefineSpace2, a, attrs, 1, 0x0B);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SELECTOR);
+
+    /* Define one index each way */
+    cmdSz = fwtpm_build_nv_define(TPM_CC_NV_DefineSpace, a, attrs, 0, 0);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    cmdSz = fwtpm_build_nv_define(TPM_CC_NV_DefineSpace2, b, attrs, 1,
+        (byte)TPM_HT_NV_INDEX);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* Both public areas must be the same shape, and the Names must differ
+     * only by the index value they contain. */
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_NV_ReadPublic);
+    PutU32BE(gCmd + cmdSz, a); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pos = TPM2_HEADER_SIZE;
+    pubSzA = GetU16BE(gRsp + pos); pos += 2 + pubSzA;
+    nameSzA = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntLE(nameSzA, (UINT16)sizeof(nameA));
+    memcpy(nameA, gRsp + pos, nameSzA);
+
+    cmdSz = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_NV_ReadPublic);
+    PutU32BE(gCmd + cmdSz, b); cmdSz += 4;
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pos = TPM2_HEADER_SIZE;
+    pubSzB = GetU16BE(gRsp + pos); pos += 2 + pubSzB;
+    nameSzB = GetU16BE(gRsp + pos); pos += 2;
+    AssertIntLE(nameSzB, (UINT16)sizeof(nameB));
+    memcpy(nameB, gRsp + pos, nameSzB);
+
+    /* DefineSpace2 stores a plain TPMS_NV_PUBLIC, so the public area read
+     * back is the same size as one defined the v1.38 way. */
+    AssertIntEQ(pubSzB, pubSzA);
+    AssertIntEQ(nameSzB, nameSzA);
+    /* Different indices, so the Names must not collide. */
+    AssertIntNE(memcmp(nameA, nameB, nameSzA), 0);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("NV_DefineSpace2 selector and define:", 0);
+}
 #endif /* !FWTPM_NO_NV */
+
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ECC_ENCRYPT)
+/* Build TPM2_ECC_Encrypt or _Decrypt. For encrypt, body is the plaintext.
+ * For decrypt, body is the already-marshaled C1 || C2 || C3 block. */
+static int fwtpm_build_ecc_crypt(UINT32 cc, UINT32 keyHandle,
+    const byte* body, int bodySz, int bodyIsTpm2b, UINT16 kdfScheme,
+    UINT16 kdfHash)
+{
+    int cmdSz = 0;
+
+    PutU16BE(gCmd + cmdSz, TPM_ST_SESSIONS); cmdSz += 2;
+    PutU32BE(gCmd + cmdSz, 0); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, cc); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, keyHandle); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, 9); cmdSz += 4;
+    PutU32BE(gCmd + cmdSz, TPM_RS_PW); cmdSz += 4;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+    gCmd[cmdSz++] = 0;
+    PutU16BE(gCmd + cmdSz, 0); cmdSz += 2;
+    if (bodyIsTpm2b) {
+        PutU16BE(gCmd + cmdSz, (UINT16)bodySz); cmdSz += 2;
+    }
+    memcpy(gCmd + cmdSz, body, bodySz); cmdSz += bodySz;
+    PutU16BE(gCmd + cmdSz, kdfScheme); cmdSz += 2;
+    if (kdfScheme != TPM_ALG_NULL) {
+        PutU16BE(gCmd + cmdSz, kdfHash); cmdSz += 2;
+    }
+    PutU32BE(gCmd + 2, (UINT32)cmdSz);
+    return cmdSz;
+}
+
+/* Create an unrestricted ECC decrypt primary and return its handle. */
+static UINT32 fwtpm_make_ecc_enc_key(FWTPM_CTX* ctx)
+{
+    int cmdSz, rspSize = 0, rc;
+
+    /* The builder's default ECC attributes set restricted, which Part 3
+     * Sec.14.8 and 14.9 both refuse, so clear it and keep decrypt. */
+    cmdSz = BuildCreatePrimaryCmdEx(gCmd, TPM_ALG_ECC, 0x00020472);
+    rc = FWTPM_ProcessCommand(ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    if (rc != TPM_RC_SUCCESS || GetRspRC(gRsp) != TPM_RC_SUCCESS) {
+        return 0;
+    }
+    return GetU32BE(gRsp + TPM2_HEADER_SIZE);
+}
+
+/* TPM2_ECC_Encrypt / TPM2_ECC_Decrypt: GB/T 32918.4 round trip, and the
+ * integrity value must actually be checked. */
+static void test_fwtpm_ecc_encrypt(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz, pos;
+    UINT32 key;
+    const char* msg = "Annex C round trip";
+    UINT16 msgSz = (UINT16)XSTRLEN(msg);
+    byte cipher[512];
+    int cipherSz = 0;
+    UINT16 c1Outer, c2Sz, c3Sz;
+    int c3Off;
+
+    memset(&ctx, 0, sizeof(ctx));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, 0);
+
+    key = fwtpm_make_ecc_enc_key(&ctx);
+    AssertIntNE(key, 0);
+
+    /* Encrypt. The key's kdf is TPM_ALG_NULL, so inScheme must name one. */
+    cmdSz = fwtpm_build_ecc_crypt(TPM_CC_ECC_Encrypt, key,
+        (const byte*)msg, msgSz, 1, TPM_ALG_KDF2, TPM_ALG_SHA256);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+
+    /* Response: parameterSize(4) then C1 || C2 || C3 */
+    pos = TPM2_HEADER_SIZE + 4;
+    c1Outer = GetU16BE(gRsp + pos);
+    cipherSz = 2 + c1Outer;                   /* C1 with its outer size */
+    c2Sz = GetU16BE(gRsp + pos + cipherSz);
+    cipherSz += 2 + c2Sz;                     /* C2 */
+    c3Off = cipherSz;
+    c3Sz = GetU16BE(gRsp + pos + cipherSz);
+    cipherSz += 2 + c3Sz;                     /* C3 */
+    AssertIntEQ(c2Sz, msgSz);                 /* XOR keystream: same length */
+    AssertIntEQ(c3Sz, WC_SHA256_DIGEST_SIZE);
+    AssertIntLE(cipherSz, (int)sizeof(cipher));
+    memcpy(cipher, gRsp + pos, cipherSz);
+
+    /* C2 must not equal the plaintext */
+    AssertIntNE(memcmp(cipher + 2 + c1Outer + 2, msg, msgSz), 0);
+
+    /* Decrypt and compare */
+    cmdSz = fwtpm_build_ecc_crypt(TPM_CC_ECC_Decrypt, key, cipher,
+        cipherSz, 0, TPM_ALG_KDF2, TPM_ALG_SHA256);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pos = TPM2_HEADER_SIZE + 4;
+    AssertIntEQ(GetU16BE(gRsp + pos), msgSz);
+    AssertIntEQ(memcmp(gRsp + pos + 2, msg, msgSz), 0);
+
+    /* A flipped bit in C3 must be detected */
+    cipher[c3Off + 2] ^= 0x01;
+    cmdSz = fwtpm_build_ecc_crypt(TPM_CC_ECC_Decrypt, key, cipher,
+        cipherSz, 0, TPM_ALG_KDF2, TPM_ALG_SHA256);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_VALUE);
+    cipher[c3Off + 2] ^= 0x01;
+
+    /* A flipped bit in C2 must also be detected, via C3 */
+    cipher[2 + c1Outer + 2] ^= 0x01;
+    cmdSz = fwtpm_build_ecc_crypt(TPM_CC_ECC_Decrypt, key, cipher,
+        cipherSz, 0, TPM_ALG_KDF2, TPM_ALG_SHA256);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_VALUE);
+    cipher[2 + c1Outer + 2] ^= 0x01;
+
+    /* Annex C defines only KDF2 */
+    cmdSz = fwtpm_build_ecc_crypt(TPM_CC_ECC_Encrypt, key,
+        (const byte*)msg, msgSz, 1, TPM_ALG_KDF1_SP800_56A,
+        TPM_ALG_SHA256);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SCHEME);
+
+    /* With no scheme on the key and none supplied, there is nothing to use */
+    cmdSz = fwtpm_build_ecc_crypt(TPM_CC_ECC_Encrypt, key,
+        (const byte*)msg, msgSz, 1, TPM_ALG_NULL, TPM_ALG_NULL);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SCHEME);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("ECC_Encrypt/Decrypt Annex C round trip:", 0);
+}
+
+/* A restricted key is refused by both directions (Part 3 Sec.14.8, 14.9). */
+static void test_fwtpm_ecc_encrypt_restricted(void)
+{
+    FWTPM_CTX ctx;
+    int rc, rspSize, cmdSz;
+    UINT32 key;
+    const char* msg = "nope";
+
+    memset(&ctx, 0, sizeof(ctx));
+    rc = fwtpm_test_startup(&ctx);
+    AssertIntEQ(rc, 0);
+
+    /* Builder default sets restricted */
+    cmdSz = BuildCreatePrimaryCmd(gCmd, TPM_ALG_ECC);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    key = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    cmdSz = fwtpm_build_ecc_crypt(TPM_CC_ECC_Encrypt, key,
+        (const byte*)msg, 4, 1, TPM_ALG_KDF2, TPM_ALG_SHA256);
+    rspSize = 0;
+    rc = FWTPM_ProcessCommand(&ctx, gCmd, cmdSz, gRsp, &rspSize, 0);
+    AssertIntEQ(rc, TPM_RC_SUCCESS);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_ATTRIBUTES);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("ECC_Encrypt refuses a restricted key:", 0);
+}
+#endif /* HAVE_ECC && !FWTPM_NO_ECC_ENCRYPT */
 
 /* Build TPM2_SetCapability(authHandle, capability, config, enable, lock). */
 static int fwtpm_build_set_capability(UINT32 authHandle, UINT32 capability,
@@ -22852,6 +23132,11 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
 #ifndef FWTPM_NO_NV
         test_fwtpm_nv_readpublic2();
+        test_fwtpm_nv_definespace2();
+#endif
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ECC_ENCRYPT)
+        test_fwtpm_ecc_encrypt();
+        test_fwtpm_ecc_encrypt_restricted();
 #endif
         test_fwtpm_set_capability();
 #ifndef FWTPM_NO_POLICY

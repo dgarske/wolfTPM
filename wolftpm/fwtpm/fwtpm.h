@@ -142,6 +142,9 @@
  *   FWTPM_NO_ZGEN_2PHASE    - EC_Ephemeral/ZGen_2Phase only; automatically
  *                            set unless wolfCrypt exports its RNG-blinded ECC
  *                            scalar multiplication API
+ *   FWTPM_NO_ECC_ENCRYPT   - ECC_Encrypt/ECC_Decrypt; automatically set on
+ *                            the same terms as FWTPM_NO_ZGEN_2PHASE, since
+ *                            the Annex C construction needs the same API
  *   FWTPM_NO_HASH_CMDS     - Hash, HMAC, and the hash/HMAC sequence commands
  *   FWTPM_NO_CONTEXT       - ContextSave/ContextLoad (FlushContext retained)
  *   FWTPM_NO_SYM_ENCRYPT   - EncryptDecrypt/EncryptDecrypt2
@@ -172,6 +175,17 @@
     (defined(FWTPM_NO_ECDH) || \
      !defined(WOLFSSL_PUBLIC_ECC_ADD_DBL))
     #define FWTPM_NO_ZGEN_2PHASE
+#endif
+
+/* ECC_Encrypt/ECC_Decrypt perform the same secret-scalar multiplication of a
+ * caller-supplied point as ZGen_2Phase, so they carry the same requirement
+ * and are disabled automatically on the same terms. */
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ECC_ENCRYPT) && \
+    !defined(WOLFSSL_PUBLIC_ECC_ADD_DBL)
+    #define FWTPM_NO_ECC_ENCRYPT
+#endif
+#ifndef HAVE_ECC
+    #define FWTPM_NO_ECC_ENCRYPT
 #endif
 
 /* Dictionary Attack (DA) feature toggles:

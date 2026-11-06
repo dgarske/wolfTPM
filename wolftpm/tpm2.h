@@ -281,8 +281,11 @@ typedef enum {
     TPM_CC_CreateLoaded             = 0x00000191,
     TPM_CC_PolicyAuthorizeNV        = 0x00000192,
     TPM_CC_EncryptDecrypt2          = 0x00000193,
+    TPM_CC_ECC_Encrypt              = 0x00000199,
+    TPM_CC_ECC_Decrypt              = 0x0000019A,
     TPM_CC_PolicyCapability         = 0x0000019B,
     TPM_CC_PolicyParameters         = 0x0000019C,
+    TPM_CC_NV_DefineSpace2          = 0x0000019D,
     TPM_CC_NV_ReadPublic2           = 0x0000019E,
     /* TPM 2.0 Library v1.85: settable feature configuration. Used by some
      * Infineon parts to enable/lock SPDM-PSK and other features. */

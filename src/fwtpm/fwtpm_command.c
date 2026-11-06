@@ -12251,6 +12251,529 @@ static TPM_RC FwCmd_ECDH_ZGen(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     return rc;
 }
 #endif /* !FWTPM_NO_ECDH */
+
+#ifndef FWTPM_NO_ECC_ENCRYPT
+/* --- TPM2_ECC_Encrypt / TPM2_ECC_Decrypt (CC 0x0199 / 0x019A) --- */
+/* The construction is GB/T 32918.4-2016 as given in TPM 2.0 Part 1 Annex
+ * C.2.4, generalized there to any ECC key whose restricted attribute is
+ * CLEAR:
+ *
+ *   C1 = x1 || y1          where P1 = [k]G
+ *   t  = KDF(x2 || y2, len(M))   where P2 = (x2, y2) = [k]P_B
+ *   C2 = M XOR t
+ *   C3 = H(x2 || M || y2)
+ *
+ * Annex C states only TPM_ALG_KDF2 is supported. KDF2 from ISO/IEC 18033-2
+ * is X9.63 with an empty SharedInfo, so wc_X963_KDF supplies it directly.
+ * An older wolfCrypt restricts that function to the SHA family and answers
+ * BAD_FUNC_ARG for anything else, which is surfaced as TPM_RC_HASH. */
+
+/* Resolve the KDF scheme for both commands, which Part 3 Sec.14.8 requires
+ * to be checked identically. Returns the hash to use in *hashAlg. */
+static TPM_RC FwEccEncScheme(const FWTPM_Object* obj, UINT16 inScheme,
+    UINT16 inHash, TPMI_ALG_HASH* hashAlg)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    UINT16 keyScheme = obj->pub.parameters.eccDetail.kdf.scheme;
+    UINT16 keyHash = obj->pub.parameters.eccDetail.kdf.details.any.hashAlg;
+
+    if (keyScheme == TPM_ALG_NULL) {
+        /* No default on the key, so the caller must name one */
+        if (inScheme == TPM_ALG_NULL) {
+            rc = TPM_RC_SCHEME;
+        }
+        else {
+            *hashAlg = inHash;
+        }
+    }
+    else if (inScheme != TPM_ALG_NULL && inScheme != keyScheme) {
+        rc = TPM_RC_SCHEME;
+    }
+    else {
+        /* Key's scheme wins; a matching inScheme may still carry the hash */
+        *hashAlg = (inScheme != TPM_ALG_NULL) ? inHash : keyHash;
+    }
+
+    /* Annex C: only KDF2 is defined for this construction */
+    if (rc == 0) {
+        UINT16 used = (keyScheme != TPM_ALG_NULL) ? keyScheme : inScheme;
+        if (used != TPM_ALG_KDF2) {
+            rc = TPM_RC_SCHEME;
+        }
+    }
+    if (rc == 0 && TPM2_GetHashDigestSize(*hashAlg) <= 0) {
+        rc = TPM_RC_HASH;
+    }
+    return rc;
+}
+
+/* Parse a TPMT_KDF_SCHEME+ trailing parameter. TPM_ALG_NULL carries no
+ * details, every other scheme carries a TPMI_ALG_HASH. */
+static TPM_RC FwEccEncParseScheme(TPM2_Packet* cmd, int cmdSize,
+    UINT16* scheme, UINT16* hashAlg)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+
+    (void)cmdSize;
+    *hashAlg = TPM_ALG_NULL;
+    TPM2_Packet_ParseU16(cmd, scheme);
+    if (*scheme != TPM_ALG_NULL) {
+        TPM2_Packet_ParseU16(cmd, hashAlg);
+    }
+    if (cmd->overflow) {
+        rc = TPM_RC_COMMAND_SIZE;
+    }
+    return rc;
+}
+
+/* t = KDF2(hashAlg, x2 || y2, len), then buf ^= t. Used for both
+ * directions, since XOR is its own inverse. */
+static TPM_RC FwEccEncXorMask(TPMI_ALG_HASH hashAlg, const byte* x2,
+    const byte* y2, word32 coordSz, byte* buf, UINT16 bufSz)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    enum wc_HashType wcHash = FwGetWcHashType(hashAlg);
+    FWTPM_DECLARE_BUF(zBuf, 2 * MAX_ECC_BYTES);
+    FWTPM_DECLARE_BUF(mask, FWTPM_MAX_NV_DATA);
+    UINT16 i;
+
+    if (bufSz == 0) {
+        return TPM_RC_SUCCESS; /* nothing to mask */
+    }
+
+    FWTPM_ALLOC_BUF(zBuf, 2 * MAX_ECC_BYTES);
+    FWTPM_ALLOC_BUF(mask, FWTPM_MAX_NV_DATA);
+#ifdef WOLFSSL_SMALL_STACK
+    if (zBuf == NULL || mask == NULL) {
+        FWTPM_FREE_BUF(zBuf);
+        FWTPM_FREE_BUF(mask);
+        return TPM_RC_MEMORY;
+    }
+#endif
+
+    if (bufSz > FWTPM_MAX_NV_DATA) {
+        rc = TPM_RC_SIZE;
+    }
+    if (rc == 0) {
+        XMEMCPY(zBuf, x2, coordSz);
+        XMEMCPY(zBuf + coordSz, y2, coordSz);
+        /* KDF2 == X9.63 with no SharedInfo. An older wolfCrypt accepts only
+         * the SHA family here and returns BAD_FUNC_ARG otherwise. */
+        if (wc_X963_KDF(wcHash, zBuf, 2 * coordSz, NULL, 0, mask,
+                (word32)bufSz) != 0) {
+            rc = TPM_RC_HASH;
+        }
+    }
+    if (rc == 0) {
+        for (i = 0; i < bufSz; i++) {
+            buf[i] ^= mask[i];
+        }
+    }
+
+    TPM2_ForceZero(zBuf, 2 * MAX_ECC_BYTES);
+    TPM2_ForceZero(mask, FWTPM_MAX_NV_DATA);
+    FWTPM_FREE_BUF(zBuf);
+    FWTPM_FREE_BUF(mask);
+    return rc;
+}
+
+/* C3 = H(x2 || M || y2). Note the plaintext sits between the two
+ * coordinates; this is not a MAC over the ciphertext. */
+static TPM_RC FwEccEncC3(TPMI_ALG_HASH hashAlg, const byte* x2,
+    const byte* y2, word32 coordSz, const byte* m, UINT16 mSz,
+    byte* out, int* outSz)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    enum wc_HashType wcHash = FwGetWcHashType(hashAlg);
+    int dSz = TPM2_GetHashDigestSize(hashAlg);
+    FWTPM_DECLARE_VAR(hash, wc_HashAlg);
+    int hashInit = 0;
+
+    if (dSz <= 0) {
+        return TPM_RC_HASH;
+    }
+    FWTPM_ALLOC_VAR(hash, wc_HashAlg);
+
+    if (wc_HashInit(hash, wcHash) != 0) {
+        rc = TPM_RC_FAILURE;
+    }
+    else {
+        hashInit = 1;
+    }
+    if (rc == 0 && wc_HashUpdate(hash, wcHash, x2, coordSz) != 0) {
+        rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0 && mSz > 0 &&
+            wc_HashUpdate(hash, wcHash, m, mSz) != 0) {
+        rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0 && wc_HashUpdate(hash, wcHash, y2, coordSz) != 0) {
+        rc = TPM_RC_FAILURE;
+    }
+    if (rc == 0 && wc_HashFinal(hash, wcHash, out) != 0) {
+        rc = TPM_RC_FAILURE;
+    }
+    if (hashInit) {
+        wc_HashFree(hash, wcHash);
+    }
+    if (rc == 0) {
+        *outSz = dSz;
+    }
+
+    FWTPM_FREE_VAR(hash);
+    return rc;
+}
+
+static TPM_RC FwCmd_ECC_Encrypt(FWTPM_CTX* ctx, TPM2_Packet* cmd,
+    int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    UINT32 keyHandle = 0;
+    FWTPM_Object* obj = NULL;
+    UINT16 inScheme = TPM_ALG_NULL, inHash = TPM_ALG_NULL;
+    TPMI_ALG_HASH hashAlg = TPM_ALG_NULL;
+    UINT16 mSz = 0;
+    int wcCurve, keySz;
+    UINT16 curveId;
+    word32 x2Sz = 0, y2Sz = 0;
+    int c3Sz = 0;
+    int paramSzPos, paramStart, markPos;
+    FWTPM_DECLARE_VAR(ephKey, ecc_key);
+    FWTPM_DECLARE_VAR(pubKey, ecc_key);
+    FWTPM_DECLARE_BUF(mBuf, FWTPM_MAX_NV_DATA);
+    byte x2[MAX_ECC_BYTES], y2[MAX_ECC_BYTES];
+    byte x1[MAX_ECC_BYTES], y1[MAX_ECC_BYTES];
+    byte c3[TPM_MAX_DIGEST_SIZE];
+    word32 x1Sz, y1Sz;
+    int ephInit = 0, pubInit = 0;
+
+    FWTPM_ALLOC_VAR(ephKey, ecc_key);
+    FWTPM_ALLOC_VAR(pubKey, ecc_key);
+    FWTPM_ALLOC_BUF(mBuf, FWTPM_MAX_NV_DATA);
+
+    TPM2_Packet_ParseU32(cmd, &keyHandle);
+    if (cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
+
+    if (rc == 0) {
+        obj = FwFindObject(ctx, keyHandle);
+        if (obj == NULL) {
+            rc = TPM_RC_HANDLE;
+        }
+        else if (obj->pub.type != TPM_ALG_ECC) {
+            rc = TPM_RC_KEY;
+        }
+        /* Annex C.2.4: restricted must be CLEAR. Part 3 notes the TPM does
+         * not check the other attributes, since only the public area may be
+         * loaded. */
+        else if ((obj->pub.objectAttributes & TPMA_OBJECT_restricted) != 0) {
+            rc = TPM_RC_ATTRIBUTES;
+        }
+    }
+
+    /* plainText (TPM2B_MAX_BUFFER) */
+    if (rc == 0) {
+        TPM2_Packet_ParseU16(cmd, &mSz);
+        if (cmd->overflow) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
+        else if (mSz > FWTPM_MAX_NV_DATA) {
+            rc = TPM_RC_SIZE;
+        }
+    }
+    if (rc == 0) {
+        TPM2_Packet_ParseBytes(cmd, mBuf, mSz);
+        rc = FwEccEncParseScheme(cmd, cmdSize, &inScheme, &inHash);
+    }
+    if (rc == 0) {
+        rc = FwEccEncScheme(obj, inScheme, inHash, &hashAlg);
+    }
+
+    if (rc == 0) {
+        curveId = obj->pub.parameters.eccDetail.curveID;
+        wcCurve = FwGetWcCurveId(curveId);
+        keySz = FwGetEccKeySize(curveId);
+        if (wcCurve < 0 || keySz == 0) {
+            rc = TPM_RC_CURVE;
+        }
+    }
+
+    /* Recipient public key */
+    if (rc == 0) {
+        if (wc_ecc_init(pubKey) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        else {
+            pubInit = 1;
+            if (FwImportEccPubFromPublic(&obj->pub, pubKey) != 0) {
+                rc = TPM_RC_FAILURE;
+            }
+        }
+    }
+
+    /* Step 1-2: ephemeral k, P1 = [k]G, which becomes C1 */
+    if (rc == 0) {
+        if (wc_ecc_init(ephKey) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        else {
+            ephInit = 1;
+            if (wc_ecc_make_key_ex(&ctx->rng, keySz, ephKey, wcCurve) != 0) {
+                rc = TPM_RC_FAILURE;
+            }
+        }
+    }
+    if (rc == 0) {
+        x1Sz = (word32)keySz;
+        y1Sz = (word32)keySz;
+        if (wc_ecc_export_public_raw(ephKey, x1, &x1Sz, y1, &y1Sz) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+
+    /* Step 3: P2 = [k]P_B, both coordinates */
+    if (rc == 0) {
+        if (FwEccSharedPoint(ephKey, pubKey, &ctx->rng,
+                x2, &x2Sz, y2, &y2Sz) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        else if (x2Sz != y2Sz) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+
+    /* Step 8 before step 7: C3 covers the plaintext, so hash it first and
+     * then mask mBuf in place. */
+    if (rc == 0) {
+        rc = FwEccEncC3(hashAlg, x2, y2, x2Sz, mBuf, mSz, c3, &c3Sz);
+    }
+    /* Steps 6-7: C2 = M XOR KDF2(x2 || y2) */
+    if (rc == 0) {
+        rc = FwEccEncXorMask(hashAlg, x2, y2, x2Sz, mBuf, mSz);
+    }
+
+    if (rc == 0) {
+        paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
+
+        /* C1 (TPM2B_ECC_POINT), uncompressed */
+        TPM2_Packet_MarkU16(rsp, &markPos);
+        TPM2_Packet_AppendU16(rsp, (UINT16)x1Sz);
+        TPM2_Packet_AppendBytes(rsp, x1, x1Sz);
+        TPM2_Packet_AppendU16(rsp, (UINT16)y1Sz);
+        TPM2_Packet_AppendBytes(rsp, y1, y1Sz);
+        TPM2_Packet_PlaceU16(rsp, markPos);
+
+        /* C2 (TPM2B_MAX_BUFFER) */
+        TPM2_Packet_AppendU16(rsp, mSz);
+        TPM2_Packet_AppendBytes(rsp, mBuf, mSz);
+
+        /* C3 (TPM2B_DIGEST) */
+        TPM2_Packet_AppendU16(rsp, (UINT16)c3Sz);
+        TPM2_Packet_AppendBytes(rsp, c3, c3Sz);
+
+        FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
+    }
+
+    TPM2_ForceZero(x2, sizeof(x2));
+    TPM2_ForceZero(y2, sizeof(y2));
+#ifdef WOLFSSL_SMALL_STACK
+    if (mBuf != NULL)
+#endif
+    {
+        TPM2_ForceZero(mBuf, FWTPM_MAX_NV_DATA);
+    }
+    if (ephInit) wc_ecc_free(ephKey);
+    if (pubInit) wc_ecc_free(pubKey);
+    FWTPM_FREE_VAR(ephKey);
+    FWTPM_FREE_VAR(pubKey);
+    FWTPM_FREE_BUF(mBuf);
+    return rc;
+}
+
+static TPM_RC FwCmd_ECC_Decrypt(FWTPM_CTX* ctx, TPM2_Packet* cmd,
+    int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    UINT32 keyHandle = 0;
+    FWTPM_Object* obj = NULL;
+    UINT16 inScheme = TPM_ALG_NULL, inHash = TPM_ALG_NULL;
+    TPMI_ALG_HASH hashAlg = TPM_ALG_NULL;
+    UINT16 c1Outer = 0, c2Sz = 0, c3Sz = 0;
+    int wcCurve, keySz;
+    UINT16 curveId;
+    word32 x2Sz = 0, y2Sz = 0;
+    int calcC3Sz = 0;
+    int paramSzPos, paramStart;
+    FWTPM_DECLARE_VAR(privKey, ecc_key);
+    FWTPM_DECLARE_VAR(c1Key, ecc_key);
+    FWTPM_DECLARE_VAR(c1, TPM2B_ECC_POINT);
+    FWTPM_DECLARE_BUF(mBuf, FWTPM_MAX_NV_DATA);
+    byte x2[MAX_ECC_BYTES], y2[MAX_ECC_BYTES];
+    byte c3[TPM_MAX_DIGEST_SIZE], calcC3[TPM_MAX_DIGEST_SIZE];
+    int privInit = 0, c1Init = 0;
+
+    FWTPM_ALLOC_VAR(privKey, ecc_key);
+    FWTPM_ALLOC_VAR(c1Key, ecc_key);
+    FWTPM_CALLOC_VAR(c1, TPM2B_ECC_POINT);
+    FWTPM_ALLOC_BUF(mBuf, FWTPM_MAX_NV_DATA);
+
+    TPM2_Packet_ParseU32(cmd, &keyHandle);
+    if (cmdTag == TPM_ST_SESSIONS) rc = FwSkipAuthArea(cmd, cmdSize);
+
+    if (rc == 0) {
+        obj = FwFindObject(ctx, keyHandle);
+        if (obj == NULL) {
+            rc = TPM_RC_HANDLE;
+        }
+        else if (obj->pub.type != TPM_ALG_ECC) {
+            rc = TPM_RC_KEY;
+        }
+        else if (obj->privKeySize == 0) {
+            rc = TPM_RC_KEY;
+        }
+        /* Part 3 Sec.14.9: restricted CLEAR and decrypt SET */
+        else if ((obj->pub.objectAttributes & TPMA_OBJECT_restricted) != 0 ||
+                 (obj->pub.objectAttributes & TPMA_OBJECT_decrypt) == 0) {
+            rc = TPM_RC_ATTRIBUTES;
+        }
+    }
+
+    /* C1 (TPM2B_ECC_POINT) */
+    if (rc == 0) {
+        TPM2_Packet_ParseU16(cmd, &c1Outer);
+        TPM2_Packet_ParseU16(cmd, &c1->point.x.size);
+        if (c1->point.x.size > sizeof(c1->point.x.buffer)) {
+            rc = TPM_RC_SIZE;
+        }
+    }
+    if (rc == 0) {
+        TPM2_Packet_ParseBytes(cmd, c1->point.x.buffer, c1->point.x.size);
+        TPM2_Packet_ParseU16(cmd, &c1->point.y.size);
+        if (c1->point.y.size > sizeof(c1->point.y.buffer)) {
+            rc = TPM_RC_SIZE;
+        }
+    }
+    if (rc == 0) {
+        TPM2_Packet_ParseBytes(cmd, c1->point.y.buffer, c1->point.y.size);
+        /* Annex C supports the uncompressed form only */
+        if (c1->point.x.size == 0 || c1->point.y.size == 0) {
+            rc = TPM_RC_ECC_POINT;
+        }
+    }
+
+    /* C2 (TPM2B_MAX_BUFFER) */
+    if (rc == 0) {
+        TPM2_Packet_ParseU16(cmd, &c2Sz);
+        if (cmd->overflow) {
+            rc = TPM_RC_COMMAND_SIZE;
+        }
+        else if (c2Sz > FWTPM_MAX_NV_DATA) {
+            rc = TPM_RC_SIZE;
+        }
+    }
+    if (rc == 0) {
+        TPM2_Packet_ParseBytes(cmd, mBuf, c2Sz);
+        /* C3 (TPM2B_DIGEST) */
+        TPM2_Packet_ParseU16(cmd, &c3Sz);
+        if (c3Sz > (UINT16)sizeof(c3)) {
+            rc = TPM_RC_SIZE;
+        }
+    }
+    if (rc == 0) {
+        TPM2_Packet_ParseBytes(cmd, c3, c3Sz);
+        rc = FwEccEncParseScheme(cmd, cmdSize, &inScheme, &inHash);
+    }
+    if (rc == 0) {
+        rc = FwEccEncScheme(obj, inScheme, inHash, &hashAlg);
+    }
+    if (rc == 0 && c3Sz != (UINT16)TPM2_GetHashDigestSize(hashAlg)) {
+        rc = TPM_RC_SIZE;
+    }
+
+    if (rc == 0) {
+        curveId = obj->pub.parameters.eccDetail.curveID;
+        wcCurve = FwGetWcCurveId(curveId);
+        keySz = FwGetEccKeySize(curveId);
+        if (wcCurve < 0 || keySz == 0) {
+            rc = TPM_RC_CURVE;
+        }
+    }
+
+    if (rc == 0) {
+        if (FwImportEccKeyFromDer(obj, privKey) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        else {
+            privInit = 1;
+            wc_ecc_set_rng(privKey, &ctx->rng);
+        }
+    }
+    /* Treat C1 as the peer public point */
+    if (rc == 0) {
+        if (wc_ecc_init(c1Key) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        else {
+            c1Init = 1;
+            if (wc_ecc_import_unsigned(c1Key, c1->point.x.buffer,
+                    c1->point.y.buffer, NULL, wcCurve) != 0) {
+                rc = TPM_RC_ECC_POINT;
+            }
+        }
+    }
+    if (rc == 0 && wc_ecc_check_key(c1Key) != 0) {
+        rc = TPM_RC_ECC_POINT;
+    }
+
+    /* P2 = [d_B]C1, the same point the encryptor derived */
+    if (rc == 0) {
+        if (FwEccSharedPoint(privKey, c1Key, &ctx->rng,
+                x2, &x2Sz, y2, &y2Sz) != 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        else if (x2Sz != y2Sz) {
+            rc = TPM_RC_FAILURE;
+        }
+    }
+    /* M = C2 XOR t */
+    if (rc == 0) {
+        rc = FwEccEncXorMask(hashAlg, x2, y2, x2Sz, mBuf, c2Sz);
+    }
+    /* Verify C3 over the recovered plaintext before returning any of it */
+    if (rc == 0) {
+        rc = FwEccEncC3(hashAlg, x2, y2, x2Sz, mBuf, c2Sz, calcC3,
+            &calcC3Sz);
+    }
+    if (rc == 0) {
+        if (calcC3Sz != (int)c3Sz ||
+                TPM2_ConstantCompare(calcC3, c3, c3Sz) != 0) {
+            rc = TPM_RC_VALUE;
+        }
+    }
+
+    if (rc == 0) {
+        paramStart = FwRspParamsBegin(rsp, cmdTag, &paramSzPos);
+        TPM2_Packet_AppendU16(rsp, c2Sz);
+        TPM2_Packet_AppendBytes(rsp, mBuf, c2Sz);
+        FwRspParamsEnd(rsp, cmdTag, paramSzPos, paramStart);
+    }
+
+    TPM2_ForceZero(x2, sizeof(x2));
+    TPM2_ForceZero(y2, sizeof(y2));
+#ifdef WOLFSSL_SMALL_STACK
+    if (mBuf != NULL)
+#endif
+    {
+        TPM2_ForceZero(mBuf, FWTPM_MAX_NV_DATA);
+    }
+    if (privInit) wc_ecc_free(privKey);
+    if (c1Init) wc_ecc_free(c1Key);
+    FWTPM_FREE_VAR(privKey);
+    FWTPM_FREE_VAR(c1Key);
+    FWTPM_FREE_VAR(c1);
+    FWTPM_FREE_BUF(mBuf);
+    return rc;
+}
+#endif /* !FWTPM_NO_ECC_ENCRYPT */
 #endif /* HAVE_ECC */
 
 /* --- TPM2_StartAuthSession (CC 0x0176) --- */
@@ -15954,8 +16477,11 @@ static TPM_RC FwPreserveNvCounterMax(FWTPM_CTX* ctx,
 }
 
 /* --- TPM2_NV_DefineSpace (CC 0x012A) --- */
-static TPM_RC FwCmd_NV_DefineSpace(FWTPM_CTX* ctx, TPM2_Packet* cmd,
-    int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
+/* Shared by TPM2_NV_DefineSpace and TPM2_NV_DefineSpace2. The two differ
+ * only in the public area: TPM2B_NV_PUBLIC_2 inserts a TPM_HT handleType
+ * selector ahead of the TPMS_NV_PUBLIC body (Part 2 Tables 238-240). */
+static TPM_RC FwNvDefineSpaceEx(FWTPM_CTX* ctx, TPM2_Packet* cmd,
+    int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag, int isV2)
 {
     TPM_RC rc = TPM_RC_SUCCESS;
     TPM_HANDLE authHandle = 0;
@@ -15963,6 +16489,7 @@ static TPM_RC FwCmd_NV_DefineSpace(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     TPM2B_NV_PUBLIC publicInfo;
     FWTPM_NvIndex* slot = NULL;
     int i;
+    UINT8 handleType = (UINT8)TPM_HT_NV_INDEX;
 
     (void)cmdSize;
     XMEMSET(&auth, 0, sizeof(auth));
@@ -15993,9 +16520,21 @@ static TPM_RC FwCmd_NV_DefineSpace(FWTPM_CTX* ctx, TPM2_Packet* cmd,
         TPM2_Packet_ParseBytes(cmd, auth.buffer, auth.size);
     }
 
-    /* 2nd param: TPM2B_NV_PUBLIC */
+    /* 2nd param: TPM2B_NV_PUBLIC, or TPM2B_NV_PUBLIC_2 for DefineSpace2 */
     if (rc == 0) {
         TPM2_Packet_ParseU16(cmd, &publicInfo.size);
+        if (isV2) {
+            TPM2_Packet_ParseU8(cmd, &handleType);
+            /* Part 3 Sec.31.17 also lists TPM_HT_EXTERNAL_NV, which needs
+             * the TPMA_NV_EXP attribute word and external index storage.
+             * Neither exists here, so that selector is refused rather than
+             * silently treated as an ordinary index. */
+            if (handleType != (UINT8)TPM_HT_NV_INDEX) {
+                rc = TPM_RC_SELECTOR;
+            }
+        }
+    }
+    if (rc == 0) {
         TPM2_Packet_ParseU32(cmd, &publicInfo.nvPublic.nvIndex);
         TPM2_Packet_ParseU16(cmd, &publicInfo.nvPublic.nameAlg);
         TPM2_Packet_ParseU32(cmd, &publicInfo.nvPublic.attributes);
@@ -16141,6 +16680,19 @@ static TPM_RC FwCmd_NV_DefineSpace(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 
     TPM2_ForceZero(&auth, sizeof(auth));
     return rc;
+}
+
+static TPM_RC FwCmd_NV_DefineSpace(FWTPM_CTX* ctx, TPM2_Packet* cmd,
+    int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
+{
+    return FwNvDefineSpaceEx(ctx, cmd, cmdSize, rsp, cmdTag, 0);
+}
+
+/* --- TPM2_NV_DefineSpace2 (CC 0x019D) --- */
+static TPM_RC FwCmd_NV_DefineSpace2(FWTPM_CTX* ctx, TPM2_Packet* cmd,
+    int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
+{
+    return FwNvDefineSpaceEx(ctx, cmd, cmdSize, rsp, cmdTag, 1);
 }
 
 /* --- TPM2_NV_UndefineSpace (CC 0x0122) --- */
@@ -21412,6 +21964,10 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
 #ifndef FWTPM_NO_ECDH
     { TPM_CC_ECDH_KeyGen,        FwCmd_ECDH_KeyGen,          1, 0, 0, FW_CMD_FLAG_DEC },
     { TPM_CC_ECDH_ZGen,          FwCmd_ECDH_ZGen,            1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
+#ifndef FWTPM_NO_ECC_ENCRYPT
+    { TPM_CC_ECC_Encrypt,        FwCmd_ECC_Encrypt,          1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
+    { TPM_CC_ECC_Decrypt,        FwCmd_ECC_Decrypt,          1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
+#endif
 #ifndef FWTPM_NO_ZGEN_2PHASE
     { TPM_CC_EC_Ephemeral,       FwCmd_EC_Ephemeral,         0, 0, 0, FW_CMD_FLAG_DEC },
     { TPM_CC_ZGen_2Phase,        FwCmd_ZGen_2Phase,          1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_FLAG_DEC },
@@ -21474,6 +22030,7 @@ static const FWTPM_CMD_ENTRY fwCmdTable[] = {
     /* --- NV RAM --- */
 #ifndef FWTPM_NO_NV
     { TPM_CC_NV_DefineSpace,     FwCmd_NV_DefineSpace,       1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_NV | FW_CMD_RO_DENY },
+    { TPM_CC_NV_DefineSpace2,    FwCmd_NV_DefineSpace2,      1, 1, 0, FW_CMD_FLAG_ENC | FW_CMD_MOD_NV | FW_CMD_RO_DENY },
     { TPM_CC_NV_UndefineSpace,   FwCmd_NV_UndefineSpace,     2, 1, 0, FW_CMD_MOD_NV | FW_CMD_RO_DENY },
     { TPM_CC_NV_UndefineSpaceSpecial, FwCmd_NV_UndefineSpaceSpecial, 2, 2, 0, FW_CMD_FLAG_AUTH_ADMIN | FW_CMD_MOD_NV | FW_CMD_RO_DENY },
     { TPM_CC_NV_ReadPublic,      FwCmd_NV_ReadPublic,        1, 0, 0, FW_CMD_FLAG_DEC },

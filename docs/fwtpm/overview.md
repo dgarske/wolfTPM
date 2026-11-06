@@ -1,6 +1,6 @@
 # fwTPM Overview
 
-The wolfTPM fwTPM (also called fTPM) is a firmware TPM 2.0 built on wolfCrypt cryptographic primitives. It is not only an emulator for tests. It is a portable TPM 2.0 command processor that runs as a standalone server process (`fwtpm_server`) or is linked into an embedded firmware image. A default build with RSA, ECC, AES, and every feature group enabled has 103 of the 112 TPM 2.0 Revision 1.38 command codes in its dispatch table, plus five Version 184 additions, for 108. The eight Version 185 post-quantum commands raise that to 116. See Command Coverage below for the counting convention and the documented limitations, such as the minimal self-test and the missing `SU_STATE` resume support.
+The wolfTPM fwTPM (also called fTPM) is a firmware TPM 2.0 built on wolfCrypt cryptographic primitives. It is not only an emulator for tests. It is a portable TPM 2.0 command processor that runs as a standalone server process (`fwtpm_server`) or is linked into an embedded firmware image. A default build with RSA, ECC, AES, and every feature group enabled has 103 of the 112 TPM 2.0 Revision 1.38 command codes in its dispatch table, plus eight Version 184 additions, for 111. The eight Version 185 post-quantum commands raise that to 119. See Command Coverage below for the counting convention and the documented limitations, such as the minimal self-test and the missing `SU_STATE` resume support.
 
 The fwTPM can be used for testing, and it can also be used in production, security-critical, and isolated deployments where a discrete TPM chip is not available or not wanted. In those deployments the security of the TPM depends on the platform that hosts it. A firmware TPM does not provide the physical isolation of a discrete TPM chip on its own, so the integrator must supply the isolation (a separate core, a TrustZone secure world, or similar) and must protect the NV storage. The default file-based NV store keeps hierarchy seeds, authorization values, and private keys in plaintext, and `fwtpm_server` itself is a development and test tool. The fwTPM also brings post-quantum cryptography and SPDM to platforms without TPM silicon.
 
@@ -239,9 +239,9 @@ Coverage: DA, noDA, lockout, self-heal, and persistence unit tests in `tests/fwt
 
 ## Command Coverage
 
-### Implemented (103 Revision 1.38 command codes, plus 5 Version 184 additions)
+### Implemented (103 Revision 1.38 command codes, plus 8 Version 184 additions)
 
-This page counts command codes, not command names, and excludes `TPM_CC_Vendor_TCG_Test` from standard totals. Revision 1.38 defines 112 standard command codes. With RSA, ECC, AES, and all feature groups enabled, the dispatch table holds 103 of them, which is about 92% of the Revision 1.38 set. The Version 184 additions add 5 and the Version 185 post-quantum commands add 8. Reaching 118 entries requires `WOLFTPM_SPDM` (one more command, `PolicyTransportSPDM`) and the test-only vendor command as well.
+This page counts command codes, not command names, and excludes `TPM_CC_Vendor_TCG_Test` from standard totals. Revision 1.38 defines 112 standard command codes. With RSA, ECC, AES, and all feature groups enabled, the dispatch table holds 103 of them, which is about 92% of the Revision 1.38 set. The Version 184 additions add 8 and the Version 185 post-quantum commands add 8. Reaching 121 entries requires `WOLFTPM_SPDM` (one more command, `PolicyTransportSPDM`) and the test-only vendor command as well.
 
 **Core set, never gated (37 commands):**
 Startup, Shutdown, SelfTest, IncrementalSelfTest, GetTestResult, GetRandom, StirRandom, GetCapability, TestParms, PCR_Read, PCR_Extend, PCR_Reset, PCR_Event, PCR_Allocate, PCR_SetAuthPolicy, PCR_SetAuthValue, CreatePrimary, FlushContext, ReadPublic, Clear, ClearControl, ChangeEPS, ChangePPS, HierarchyControl, HierarchyChangeAuth, SetPrimaryPolicy, EvictControl, Create, ObjectChangeAuth, Load, Sign, VerifySignature, StartAuthSession, Unseal, LoadExternal, CreateLoaded, SetCapability (Version 184)
@@ -257,7 +257,7 @@ RSA_Encrypt, RSA_Decrypt, ECDH_KeyGen, ECDH_ZGen, ECC_Parameters, EC_Ephemeral, 
 **Conditional on feature macros:**
 
 - `FWTPM_NO_POLICY`: PolicyGetDigest, PolicyRestart, PolicyPCR, PolicyPassword, PolicyAuthValue, PolicyCommandCode, PolicyOR, PolicySecret, PolicyAuthorize, PolicyLocality, PolicySigned, PolicyNV, PolicyPhysicalPresence, PolicyCpHash, PolicyNameHash, PolicyDuplicationSelect, PolicyNvWritten, PolicyTemplate, PolicyCounterTimer, PolicyTicket, PolicyAuthorizeNV, PolicyCapability (Version 184), PolicyParameters (Version 184) (23 commands). Also gates the conditional `PolicyTransportSPDM` command.
-- `FWTPM_NO_NV`: NV_DefineSpace, NV_UndefineSpace, NV_UndefineSpaceSpecial, NV_ReadPublic, NV_Write, NV_Read, NV_Extend, NV_Increment, NV_WriteLock, NV_ReadLock, NV_SetBits, NV_ChangeAuth, NV_GlobalWriteLock, NV_ReadPublic2 (Version 184) (14 commands). Also gates PolicyNV and PolicyAuthorizeNV when policy is enabled and removes the in-memory NV index slots from `FWTPM_CTX`. NV_Certify is gated by `FWTPM_NO_NV` as well as `FWTPM_NO_ATTESTATION`.
+- `FWTPM_NO_NV`: NV_DefineSpace, NV_UndefineSpace, NV_UndefineSpaceSpecial, NV_ReadPublic, NV_Write, NV_Read, NV_Extend, NV_Increment, NV_WriteLock, NV_ReadLock, NV_SetBits, NV_ChangeAuth, NV_GlobalWriteLock, NV_ReadPublic2 and NV_DefineSpace2 (Version 184) (15 commands). Also gates PolicyNV and PolicyAuthorizeNV when policy is enabled and removes the in-memory NV index slots from `FWTPM_CTX`. NV_Certify is gated by `FWTPM_NO_NV` as well as `FWTPM_NO_ATTESTATION`.
 - `FWTPM_NO_ATTESTATION`: Quote, Certify, CertifyCreation, GetTime, NV_Certify (NV_Certify is also removed by `FWTPM_NO_NV`)
 - `FWTPM_NO_CREDENTIAL`: MakeCredential, ActivateCredential
 - `FWTPM_NO_DA`: DictionaryAttackLockReset, DictionaryAttackParameters (2 commands)
@@ -267,6 +267,7 @@ RSA_Encrypt, RSA_Decrypt, ECDH_KeyGen, ECDH_ZGen, ECC_Parameters, EC_Ephemeral, 
 - `FWTPM_NO_HASH_CMDS`: Hash, HMAC, HMAC_Start, HashSequenceStart, SequenceUpdate, SequenceComplete, EventSequenceComplete (7 commands). When `WOLFTPM_MLDSA` is built, only SequenceUpdate is retained, because the ML-DSA verify sequences stream their message through it. SequenceComplete is not shared: ML-DSA sequences finalize through SignSequenceComplete and VerifySequenceComplete, so advertising it in a gated build would expose a command that can never succeed. Also drops the per-instance hash-sequence slots (`hashSeq[FWTPM_MAX_HASH_SEQ]`) from `FWTPM_CTX`.
 - `FWTPM_NO_CONTEXT`: ContextSave, ContextLoad (2 commands). FlushContext is retained. Also drops the per-boot context protection key and the saved-context replay list from `FWTPM_CTX`.
 - `FWTPM_NO_SYM_ENCRYPT`: EncryptDecrypt, EncryptDecrypt2 (2 commands). Nests inside `NO_AES`. AES itself is retained for session parameter encryption, AES-GCM, and (unless `FWTPM_NO_CONTEXT` is also set) context protection.
+- `FWTPM_NO_ECC_ENCRYPT`: ECC_Encrypt, ECC_Decrypt (Version 184). Set automatically unless wolfCrypt exports its RNG-blinded ECC scalar multiplication, on the same terms as `FWTPM_NO_ZGEN_2PHASE`.
 - `FWTPM_NO_READONLY`: ReadOnlyControl (Version 184). Also removes the dispatcher Read-Only enforcement, the conditional NV checks, the `readOnly` bit of `TPMA_STARTUP_CLEAR` and the `readOnly` field of `FWTPM_CTX`.
 - `FWTPM_NO_CLOCK`: ReadClock, ClockSet, ClockRateAdjust (3 commands). GetTime is under `FWTPM_NO_ATTESTATION`, not this flag.
 - `FWTPM_NO_PP`: PolicyPhysicalPresence and physical-presence enforcement. Drops the physical-presence HAL, the platform latch, and `FWTPM_PP_SetHAL`.
@@ -310,15 +311,11 @@ Hard (complex crypto or new subsystems):
 | `TPM2_Policy_AC_SendSelect` | 32.4 | Medium | Deprecated in Version 184. Policy for AC_Send. Like other policy commands |
 | `TPM2_ACT_SetTimeout` | 33.2 | Medium | Set authenticated countdown timer. Needs ACT state and timer infrastructure |
 
-#### Version 184 additions (9 command codes, 3 missing)
+#### Version 184 additions (9 command codes, none missing)
 
 Version 184 marks `CreateLoaded`, `AC_GetCapability`, `AC_Send`, `Policy_AC_SendSelect`, and `CertifyX509` as deprecated. `CreateLoaded` is still implemented here.
 
-| Command | Spec Section | Difficulty | Notes |
-|------------------------------------------|--------|--------|------------------------------------------|
-| `TPM2_ECC_Encrypt` | 14.8 | Medium | ECC-based encryption using the TPM-defined construction from Part 1 Annex C (ephemeral ECDH point, KDF-derived masking, and integrity data). The command does not expose a choice of scheme. |
-| `TPM2_ECC_Decrypt` | 14.9 | Medium | ECC-based decryption. Paired with ECC_Encrypt |
-| `TPM2_NV_DefineSpace2` | 31.x | Medium | Extended NV space definition (larger attribute field). Extends existing NV_DefineSpace |
+All nine additions are implemented. `TPM2_ECC_Encrypt` and `TPM2_ECC_Decrypt` need a wolfSSL that exports its RNG-blinded ECC point multiplication, and `TPM2_NV_DefineSpace2` accepts only the `TPM_HT_NV_INDEX` handle type; see ECC Encryption below.
 
 #### Conditionally implemented
 
@@ -334,8 +331,8 @@ The eight Version 185 PQC commands (`TPM2_Encapsulate`, `TPM2_Decapsulate`, `TPM
 |-------------|---------------------|-----------------------------|---------|----------|
 | Revision 1.38 | 112 | 103 | 9 | 92% |
 | Revision 1.59 | 117 | 103 | 14 | 88% |
-| Version 184 | 126 | 108 | 18 | 86% |
-| Version 185 | 134 | 116 | 18 | 87% |
+| Version 184 | 126 | 111 | 15 | 88% |
+| Version 185 | 134 | 119 | 15 | 89% |
 
 Implemented counts assume RSA, ECC, AES, and all feature groups, with SPDM, PQC (except in the Version 185 row), and the vendor test command disabled. Enabling `WOLFTPM_SPDM` adds `PolicyTransportSPDM` (one more implemented code). The Version 185 row includes the eight PQC commands.
 
@@ -354,6 +351,14 @@ While the mode is on, the dispatcher refuses every command Part 3 Table 190 list
 Table 190 also makes `TPM2_PolicySecret` conditional on the authorizing entity not being a PIN Pass/Fail NV index. That case cannot arise in this implementation: `TPM2_NV_DefineSpace` accepts only `TPM_NT_ORDINARY`, `TPM_NT_COUNTER`, `TPM_NT_BITS` and `TPM_NT_EXTEND`, so a PIN index cannot be defined, and no check for it is implemented.
 
 The bit is CLEAR on TPM Reset and TPM Restart and preserved by TPM Resume. It is carried in the NV orderly-shutdown marker rather than the flags byte, which has no spare bit, so it survives an orderly `Shutdown(STATE)` and a process restart. That marker gains a fourth byte; older firmware rejects the longer record, the same downgrade consideration as the two earlier extensions to it.
+
+## ECC Encryption (Version 184)
+
+`TPM2_ECC_Encrypt` and `TPM2_ECC_Decrypt` implement GB/T 32918.4-2016 as given in TPM 2.0 Part 1 Annex C.2.4, which generalizes it to any ECC key whose restricted attribute is CLEAR. The ephemeral public point is returned as `C1`, the plaintext is masked with a keystream derived from both coordinates of the shared point, and the integrity value is `C3 = H(x2 || M || y2)`.
+
+Annex C states that only `TPM_ALG_KDF2` is supported, so any other KDF scheme returns `TPM_RC_SCHEME`. KDF2 from ISO/IEC 18033-2 is X9.63 with an empty SharedInfo, so `wc_X963_KDF` supplies it directly and no new primitive is required. Because `C3` covers the plaintext rather than the ciphertext, decryption recovers the plaintext first and verifies the integrity value before returning any of it. Decryption also requires decrypt SET, and a point that is not on the key's curve is refused with `TPM_RC_ECC_POINT`.
+
+Both commands need the full shared point rather than only its x coordinate, so they use the same RNG-blinded multiplication as `TPM2_ZGen_2Phase`. That API is exported only when wolfSSL is built with `WOLFSSL_PUBLIC_ECC_ADD_DBL`, which `--enable-wpas` sets. Without it `FWTPM_NO_ECC_ENCRYPT` is set automatically and the commands are absent, so the operation can never silently fall back to an unblinded multiply. A hash the fwTPM supports may still be refused by the KDF, since `wc_X963_KDF` accepts SHA-3 only on a new enough wolfSSL and never in a FIPS build; that surfaces as `TPM_RC_HASH`.
 
 ## Settable Feature Configuration (Version 184)
 
