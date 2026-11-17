@@ -17923,6 +17923,62 @@ static void MakeEccKeyLeadingZero(WC_RNG* rng, ecc_key* key, int wantX,
     AssertIntEQ(found, 1);
 }
 
+/* A private scalar is loaded or imported only with the public point it
+ * generates (Part 3 Sec.12.3.1). */
+static void test_fwtpm_ecc_private_binding(void)
+{
+    FWTPM_CTX ctx;
+    ecc_key a, b;
+    TPM2B_PUBLIC pub;
+    UINT32 keyH = 0;
+    byte ax[32], ay[32], ad[32];
+    byte bx[32], by[32], bd[32];
+    byte zero[32];
+    byte der[FWTPM_MAX_PRIVKEY_DER];
+    int derSz = 0;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    MakeEccKeyLeadingZero(&ctx.rng, &a, 0, ax, ay, ad);
+    MakeEccKeyLeadingZero(&ctx.rng, &b, 0, bx, by, bd);
+    wc_ecc_free(&a);
+    wc_ecc_free(&b);
+    memset(zero, 0, sizeof(zero));
+
+    /* userWithAuth | sign */
+    AssertIntEQ(SendLoadExternalEcc(&ctx, 0x00040040, ax, 32, ay, 32,
+        bd, 32, &keyH), TPM_RC_BINDING);
+    AssertIntEQ(SendLoadExternalEcc(&ctx, 0x00040040, ax, 32, ay, 32,
+        zero, 32, &keyH), TPM_RC_KEY_SIZE);
+    AssertIntEQ(SendLoadExternalEcc(&ctx, 0x00040040, ax, 32, ay, 32,
+        ad, 32, &keyH), TPM_RC_SUCCESS);
+    FlushHandle(&ctx, keyH);
+
+    memset(&pub, 0, sizeof(pub));
+    pub.publicArea.type = TPM_ALG_ECC;
+    pub.publicArea.nameAlg = TPM_ALG_SHA256;
+    pub.publicArea.parameters.eccDetail.curveID = TPM_ECC_NIST_P256;
+    pub.publicArea.unique.ecc.x.size = 32;
+    memcpy(pub.publicArea.unique.ecc.x.buffer, ax, 32);
+    pub.publicArea.unique.ecc.y.size = 32;
+    memcpy(pub.publicArea.unique.ecc.y.buffer, ay, 32);
+    AssertIntEQ(FwImportReconstructKey(&pub, TPM_ALG_ECC, bd, 32, der,
+        (int)sizeof(der), &derSz, &ctx.rng), TPM_RC_BINDING);
+    AssertIntEQ(FwImportReconstructKey(&pub, TPM_ALG_ECC, ad, 32, der,
+        (int)sizeof(der), &derSz, &ctx.rng), TPM_RC_SUCCESS);
+    AssertIntGT(derSz, 0);
+
+    /* A coordinate wider than the curve is not a point on it */
+    pub.publicArea.unique.ecc.x.size = 33;
+    pub.publicArea.unique.ecc.x.buffer[0] = 1;
+    memcpy(pub.publicArea.unique.ecc.x.buffer + 1, ax, 32);
+    AssertIntEQ(FwImportReconstructKey(&pub, TPM_ALG_ECC, ad, 32, der,
+        (int)sizeof(der), &derSz, &ctx.rng), TPM_RC_ECC_POINT);
+
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("ECC private scalar bound to public point:", 0);
+}
+
 #ifndef FWTPM_NO_ECDH
 static TPM_RC SendEcdhZGen(FWTPM_CTX* ctx, UINT32 keyH, const byte* x,
     UINT16 xSz, const byte* y, UINT16 ySz)
@@ -28068,6 +28124,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
     test_fwtpm_loadexternal_symcipher_bad_keysize_rejected();
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ECDH)
     test_fwtpm_ecc_unpadded_values();
+#endif
+#ifdef HAVE_ECC
+    test_fwtpm_ecc_private_binding();
 #endif
 #if !defined(NO_RSA) && defined(WOLFSSL_KEY_GEN) && \
     !defined(FWTPM_NO_CREDENTIAL)
