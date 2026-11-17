@@ -6529,8 +6529,8 @@ static void test_fwtpm_mldsa_loadexternal_verify(void)
     !defined(FWTPM_NO_ATTESTATION)
 /* A public-only ML-DSA key (loaded via TPM2_LoadExternal, no private seed)
  * must not be usable for attestation: signing from its all-zero seed would
- * derive a universally reproducible key unrelated to the public key. Quote
- * must return TPM_RC_KEY. */
+ * derive a universally reproducible key unrelated to the public key. It has
+ * no authValue to authorize with, so Quote returns TPM_RC_AUTH_UNAVAILABLE. */
 static void test_fwtpm_mldsa_quote_public_only_returns_key(void)
 {
     FWTPM_CTX ctx;
@@ -6587,7 +6587,7 @@ static void test_fwtpm_mldsa_quote_public_only_returns_key(void)
     rspSize = 0;
     AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
         TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_KEY);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_UNAVAILABLE);
 
     FlushHandle(&ctx, handle);
     FWTPM_Cleanup(&ctx);
@@ -6630,8 +6630,9 @@ static UINT32 LoadPublicOnlyMldsa(FWTPM_CTX* ctx, UINT16 algType)
     return GetU32BE(gRsp + TPM2_HEADER_SIZE);
 }
 
-/* A public-only ML-DSA key has no private seed. SignSequenceComplete and
- * SignDigest must return TPM_RC_KEY rather than sign from an all-zero seed. */
+/* A public-only ML-DSA key has no private seed and no authValue.
+ * SignSequenceComplete and SignDigest must return TPM_RC_AUTH_UNAVAILABLE
+ * rather than sign from an all-zero seed. */
 static void test_fwtpm_mldsa_sign_public_only_returns_key(void)
 {
     FWTPM_CTX ctx;
@@ -6678,7 +6679,7 @@ static void test_fwtpm_mldsa_sign_public_only_returns_key(void)
     rspSize = 0;
     AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
         TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_KEY);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_UNAVAILABLE);
 
     FlushHandle(&ctx, seqHandle);
     FlushHandle(&ctx, handle);
@@ -6706,7 +6707,7 @@ static void test_fwtpm_mldsa_sign_public_only_returns_key(void)
     rspSize = 0;
     AssertIntEQ(FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0),
         TPM_RC_SUCCESS);
-    AssertIntEQ(GetRspRC(gRsp), TPM_RC_KEY);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_AUTH_UNAVAILABLE);
 
     FlushHandle(&ctx, handle);
 #endif /* WOLFTPM_HASH_MLDSA */
@@ -26644,6 +26645,89 @@ static void test_fwtpm_policy_session_needs_auth_policy(void)
 }
 #endif /* !FWTPM_NO_POLICY && !FWTPM_NO_NV */
 
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
+/* Certify objectHandle with signHandle. A zero sessH authorizes the object
+ * with the Empty Auth password, otherwise with that session. */
+static TPM_RC SendCertify(FWTPM_CTX* ctx, UINT32 objectHandle,
+    UINT32 signHandle, UINT32 sessH)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_Certify);
+    int rspSize = 0;
+    int authStart;
+
+    PutU32BE(gCmd + pos, objectHandle); pos += 4;
+    PutU32BE(gCmd + pos, signHandle); pos += 4;
+    authStart = pos;
+    pos = AppendAuth(gCmd, pos, (sessH != 0) ? sessH : TPM_RS_PW,
+        (sessH != 0) ? TPMA_SESSION_continueSession : 0, NULL, 0);
+    /* second entry in the same authorization area */
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + authStart, (UINT32)(pos - authStart - 4));
+    PutU16BE(gCmd + pos, 0); pos += 2; /* qualifyingData */
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* inScheme */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* An object loaded without its sensitive area has no authValue or authPolicy
+ * to authorize with, so it cannot be the certified object. */
+static void test_fwtpm_public_only_object_auth_unavailable(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 signH, pubOnlyH;
+#ifndef FWTPM_NO_POLICY
+    UINT32 sessH;
+#endif
+    byte pub[sizeof(TPM2B_PUBLIC)];
+    int pubSz, pos, rspSize = 0;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+
+    signH = CreateEccSignPrimaryScheme(&ctx, 0x00050472, TPM_ALG_ECDSA,
+        TPM_ALG_SHA256);
+    AssertIntEQ(SendCertify(&ctx, signH, signH, 0), TPM_RC_SUCCESS);
+
+    /* Reload the same public area on its own */
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_ReadPublic);
+    PutU32BE(gCmd + pos, signH); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pubSz = 2 + GetU16BE(gRsp + TPM2_HEADER_SIZE);
+    AssertIntLE(pubSz, (int)sizeof(pub));
+    memcpy(pub, gRsp + TPM2_HEADER_SIZE, pubSz);
+
+    pos = BuildCmdHeader(gCmd, TPM_ST_NO_SESSIONS, 0, TPM_CC_LoadExternal);
+    PutU16BE(gCmd + pos, 0); pos += 2; /* inPrivate */
+    memcpy(gCmd + pos, pub, pubSz); pos += pubSz;
+    PutU32BE(gCmd + pos, TPM_RH_NULL); pos += 4;
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(&ctx, gCmd, pos, gRsp, &rspSize, 0);
+    AssertIntEQ(GetRspRC(gRsp), TPM_RC_SUCCESS);
+    pubOnlyH = GetU32BE(gRsp + TPM2_HEADER_SIZE);
+
+    AssertIntEQ(SendCertify(&ctx, pubOnlyH, signH, 0),
+        TPM_RC_AUTH_UNAVAILABLE);
+#ifndef FWTPM_NO_POLICY
+    sessH = StartSessionHelper(&ctx, TPM_SE_POLICY);
+    AssertIntNE(sessH, 0);
+    AssertIntEQ(SendCertify(&ctx, pubOnlyH, signH, sessH),
+        TPM_RC_AUTH_UNAVAILABLE);
+    FlushHandle(&ctx, sessH);
+#endif
+
+    FlushHandle(&ctx, pubOnlyH);
+    FlushHandle(&ctx, signH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("Public-only object cannot authorize:", 0);
+}
+#endif /* HAVE_ECC && !FWTPM_NO_ATTESTATION */
+
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 #else
@@ -27415,6 +27499,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
 #if !defined(FWTPM_NO_POLICY) && !defined(FWTPM_NO_NV)
     test_fwtpm_policy_session_needs_auth_policy();
+#endif
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
+    test_fwtpm_public_only_object_auth_unavailable();
 #endif
 
     /* Destructive tests last (Clear changes state) */

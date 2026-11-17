@@ -23437,6 +23437,18 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
             int policyDiff;
             word32 cmpSz;
 
+            /* An object loaded without its sensitive area has no authPolicy
+             * to authorize with (Part 3 Sec.18.2). */
+            if ((entityH & 0xFF000000) == (TRANSIENT_FIRST & 0xFF000000)) {
+                FWTPM_Object* pubObj = FwFindObject(ctx, entityH);
+                if (pubObj != NULL && pubObj->privKeySize == 0) {
+                    *rspSize = FwBuildErrorResponse(rspBuf, rspCap,
+                        TPM_ST_NO_SESSIONS, TPM_RC_AUTH_UNAVAILABLE);
+                    TPM2_ForceZero(cmdAuths, sizeof(cmdAuths));
+                    return TPM_RC_SUCCESS;
+                }
+            }
+
             /* Find entity's authPolicy by handle type */
 #ifndef FWTPM_NO_NV
             if ((entityH & 0xFF000000) == (NV_INDEX_FIRST & 0xFF000000)) {
@@ -23837,7 +23849,8 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
     /* userWithAuth enforcement: per TPM 2.0 spec Part 1, Section 19.7.1,
      * if an object has authPolicy set and userWithAuth is CLEAR, only a
      * policy session can authorize the object. Reject password and HMAC
-     * sessions for such objects. */
+     * sessions for such objects. An object loaded without its sensitive area
+     * has no authValue to authorize with either (Part 3 Sec.18.2). */
     for (pj = 0; pj < cmdAuthCnt && pj < (int)entry->authHandleCnt; pj++) {
         if (cmdAuths[pj].handle == TPM_RS_PW ||
             (cmdAuths[pj].sess != NULL &&
@@ -23848,8 +23861,9 @@ int FWTPM_ProcessCommand(FWTPM_CTX* ctx,
                 (entityH & 0xFF000000) == (PERSISTENT_FIRST & 0xFF000000)) {
                 uwObj = FwFindObject(ctx, entityH);
             }
-            if (uwObj != NULL && uwObj->pub.authPolicy.size > 0 &&
-                !(uwObj->pub.objectAttributes & TPMA_OBJECT_userWithAuth)) {
+            if (uwObj != NULL && (uwObj->privKeySize == 0 ||
+                (uwObj->pub.authPolicy.size > 0 &&
+                 !(uwObj->pub.objectAttributes & TPMA_OBJECT_userWithAuth)))) {
             #ifdef DEBUG_WOLFTPM
                 printf("fwTPM: Password/HMAC auth rejected for handle "
                     "0x%x — policy required (userWithAuth clear)\n", entityH);
