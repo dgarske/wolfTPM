@@ -26728,6 +26728,57 @@ static void test_fwtpm_public_only_object_auth_unavailable(void)
 }
 #endif /* HAVE_ECC && !FWTPM_NO_ATTESTATION */
 
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
+static TPM_RC SendGetTime(FWTPM_CTX* ctx, UINT32 privacyAdminHandle,
+    UINT32 signHandle)
+{
+    int pos = BuildCmdHeader(gCmd, TPM_ST_SESSIONS, 0, TPM_CC_GetTime);
+    int rspSize = 0;
+    int authStart;
+
+    PutU32BE(gCmd + pos, privacyAdminHandle); pos += 4;
+    PutU32BE(gCmd + pos, signHandle); pos += 4;
+    authStart = pos;
+    pos = AppendPwAuth(gCmd, pos, NULL, 0);
+    /* second entry in the same authorization area */
+    PutU32BE(gCmd + pos, TPM_RS_PW); pos += 4;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    gCmd[pos++] = 0;
+    PutU16BE(gCmd + pos, 0); pos += 2;
+    PutU32BE(gCmd + authStart, (UINT32)(pos - authStart - 4));
+    PutU16BE(gCmd + pos, 0); pos += 2; /* qualifyingData */
+    PutU16BE(gCmd + pos, TPM_ALG_NULL); pos += 2; /* inScheme */
+    PutU32BE(gCmd + 2, (UINT32)pos);
+    FWTPM_ProcessCommand(ctx, gCmd, pos, gRsp, &rspSize, 0);
+    return GetRspRC(gRsp);
+}
+
+/* privacyAdminHandle is a TPMI_RH_ENDORSEMENT: only Endorsement
+ * Authorization releases the time attestation. */
+static void test_fwtpm_gettime_privacy_admin_handle(void)
+{
+    FWTPM_CTX ctx;
+    UINT32 signH;
+
+    memset(&ctx, 0, sizeof(ctx));
+    AssertIntEQ(fwtpm_test_startup(&ctx), 0);
+    signH = CreateEccSignPrimaryScheme(&ctx, 0x00050472, TPM_ALG_ECDSA,
+        TPM_ALG_SHA256);
+
+    AssertIntEQ(SendGetTime(&ctx, TPM_RH_OWNER, signH),
+        TPM_RC_VALUE | TPM_RC_1);
+    AssertIntEQ(SendGetTime(&ctx, TPM_RH_PLATFORM, signH),
+        TPM_RC_VALUE | TPM_RC_1);
+    AssertIntEQ(SendGetTime(&ctx, signH, signH), TPM_RC_VALUE | TPM_RC_1);
+    AssertIntEQ(SendGetTime(&ctx, TPM_RH_ENDORSEMENT, signH),
+        TPM_RC_SUCCESS);
+
+    FlushHandle(&ctx, signH);
+    FWTPM_Cleanup(&ctx);
+    fwtpm_pass("GetTime privacyAdminHandle:", 0);
+}
+#endif /* HAVE_ECC && !FWTPM_NO_ATTESTATION */
+
 #ifndef NO_MAIN_DRIVER
 int main(int argc, char *argv[])
 #else
@@ -27502,6 +27553,9 @@ int fwtpm_unit_tests(int argc, char *argv[])
 #endif
 #if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
     test_fwtpm_public_only_object_auth_unavailable();
+#endif
+#if defined(HAVE_ECC) && !defined(FWTPM_NO_ATTESTATION)
+    test_fwtpm_gettime_privacy_admin_handle();
 #endif
 
     /* Destructive tests last (Clear changes state) */
