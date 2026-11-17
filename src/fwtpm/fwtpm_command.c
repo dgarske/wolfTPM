@@ -17305,10 +17305,6 @@ static TPM_RC FwCmd_NV_Write(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_WRITELOCKED)) {
         rc = TPM_RC_NV_LOCKED;
     }
-    if (rc == 0 && ctx->globalNvWriteLock &&
-        (nv->nvPublic.attributes & TPMA_NV_GLOBALLOCK)) {
-        rc = TPM_RC_NV_LOCKED;
-    }
 
     /* Parse: TPM2B data + offset */
     if (rc == 0) {
@@ -17477,10 +17473,6 @@ static TPM_RC FwCmd_NV_Extend(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_WRITELOCKED)) {
         rc = TPM_RC_NV_LOCKED;
     }
-    if (rc == 0 && ctx->globalNvWriteLock &&
-        (nv->nvPublic.attributes & TPMA_NV_GLOBALLOCK)) {
-        rc = TPM_RC_NV_LOCKED;
-    }
     if (rc == 0 && ((nv->nvPublic.attributes & TPMA_NV_TPM_NT) >> 4)
         != TPM_NT_EXTEND) {
         rc = TPM_RC_ATTRIBUTES;
@@ -17584,10 +17576,6 @@ static TPM_RC FwCmd_NV_Increment(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_WRITELOCKED)) {
-        rc = TPM_RC_NV_LOCKED;
-    }
-    if (rc == 0 && ctx->globalNvWriteLock &&
-        (nv->nvPublic.attributes & TPMA_NV_GLOBALLOCK)) {
         rc = TPM_RC_NV_LOCKED;
     }
     if (rc == 0 && ((nv->nvPublic.attributes & TPMA_NV_TPM_NT) >> 4)
@@ -17793,10 +17781,6 @@ static TPM_RC FwCmd_NV_SetBits(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     if (rc == 0 && (nv->nvPublic.attributes & TPMA_NV_WRITELOCKED)) {
         rc = TPM_RC_NV_LOCKED;
     }
-    if (rc == 0 && ctx->globalNvWriteLock &&
-        (nv->nvPublic.attributes & TPMA_NV_GLOBALLOCK)) {
-        rc = TPM_RC_NV_LOCKED;
-    }
     if (rc == 0 && ((nv->nvPublic.attributes & TPMA_NV_TPM_NT) >> 4)
         != TPM_NT_BITS) {
         rc = TPM_RC_ATTRIBUTES;
@@ -17912,13 +17896,14 @@ static TPM_RC FwCmd_NV_ChangeAuth(FWTPM_CTX* ctx, TPM2_Packet* cmd,
 }
 
 /* --- TPM2_NV_GlobalWriteLock (CC 0x0132) --- */
-/* Set the global NV write lock. All NV indices with TPMA_NV_GLOBALLOCK
- * become write-locked until the next Startup(CLEAR). */
+/* Set TPMA_NV_WRITELOCKED on every NV index that has TPMA_NV_GLOBALLOCK.
+ * An index defined afterwards is not locked until the command runs again. */
 static TPM_RC FwCmd_NV_GlobalWriteLock(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     int cmdSize, TPM2_Packet* rsp, UINT16 cmdTag)
 {
     TPM_RC rc = TPM_RC_SUCCESS;
     UINT32 authHandle = 0;
+    int i;
 
     (void)cmdSize;
 
@@ -17932,17 +17917,25 @@ static TPM_RC FwCmd_NV_GlobalWriteLock(FWTPM_CTX* ctx, TPM2_Packet* cmd,
     }
 
     if (rc == 0) {
-        int oldGlobalNvWriteLock = ctx->globalNvWriteLock;
     #ifdef DEBUG_WOLFTPM
         printf("fwTPM: NV_GlobalWriteLock(auth=0x%x)\n", authHandle);
     #endif
-        ctx->globalNvWriteLock = 1;
-        /* Persist so the lock survives a daemon restart (Resume) */
-        rc = FWTPM_NV_SaveFlags(ctx);
+        for (i = 0; i < FWTPM_MAX_NV_INDICES && rc == 0; i++) {
+            FWTPM_NvIndex* nv = &ctx->nvIndices[i];
+            UINT32 oldAttrs = nv->nvPublic.attributes;
+
+            if (!nv->inUse || !(oldAttrs & TPMA_NV_GLOBALLOCK) ||
+                    (oldAttrs & TPMA_NV_WRITELOCKED)) {
+                continue;
+            }
+            nv->nvPublic.attributes |= TPMA_NV_WRITELOCKED;
+            rc = FWTPM_NV_SaveNvIndex(ctx, i);
+            if (rc != 0) {
+                nv->nvPublic.attributes = oldAttrs;
+            }
+        }
         if (rc == 0)
             FwRspNoParams(rsp, cmdTag);
-        else
-            ctx->globalNvWriteLock = oldGlobalNvWriteLock;
     }
 
     return rc;
