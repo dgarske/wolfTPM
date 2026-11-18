@@ -920,7 +920,10 @@ static int FwNvLoadOrCreateKeyFile(FWTPM_CTX* ctx, byte* key, word32* keySz)
 #endif /* !NO_FILESYSTEM */
 
 /* Resolve the journal integrity key: a platform-provided device secret if
- * the HAL supplies one, else the default file backend's key file. */
+ * the HAL supplies one, else the default file backend's key file. Returns 1
+ * with a key and 0 when there is none. A HAL key callback that fails returns
+ * a negative value: the journal it authenticates must then be neither loaded
+ * nor written. */
 static int FwNvGetIntegrityKey(FWTPM_CTX* ctx, byte* key, word32* keySz)
 {
     *keySz = 0;
@@ -931,7 +934,7 @@ static int FwNvGetIntegrityKey(FWTPM_CTX* ctx, byte* key, word32* keySz)
         }
         TPM2_ForceZero(key, FWTPM_NV_KEY_SIZE);
         *keySz = 0;
-        return 0;
+        return -1;
     }
 #if !defined(NO_FILESYSTEM)
     if (ctx->nvHal.read == FwNvFileRead) {
@@ -1077,6 +1080,7 @@ static int FwNvWriteHeader(FWTPM_CTX* ctx)
     byte key[FWTPM_NV_KEY_SIZE];
     byte mac[FWTPM_NV_MAC_SIZE];
     word32 keySz = 0;
+    int haveKey = 0;
     int rc;
 
     FwStoreU32LE(hdr + 0,  FWTPM_NV_MAGIC);
@@ -1084,16 +1088,25 @@ static int FwNvWriteHeader(FWTPM_CTX* ctx)
     FwStoreU32LE(hdr + 8,  ctx->nvWritePos);
     FwStoreU32LE(hdr + 12, hal->maxSize);
 
+    /* A header without its MAC would be discarded on the next load */
+    if (!FW_NV_APPEND_ONLY(hal)) {
+        haveKey = FwNvGetIntegrityKey(ctx, key, &keySz);
+        if (haveKey < 0) {
+            return TPM_RC_FAILURE;
+        }
+    }
+
     rc = FwNvHalWrite(ctx, 0, hdr, sizeof(hdr));
 
     /* Rewrite the trailing MAC in place (byte-addressable only; append-only
      * commits integrity via FwNvAppendCheckpoint instead). */
-    if (rc == TPM_RC_SUCCESS && !FW_NV_APPEND_ONLY(hal) &&
-            FwNvGetIntegrityKey(ctx, key, &keySz)) {
+    if (rc == TPM_RC_SUCCESS && haveKey) {
         rc = FwNvComputeJournalMac(ctx, key, keySz, mac);
         if (rc == TPM_RC_SUCCESS) {
             rc = FwNvHalWrite(ctx, ctx->nvWritePos, mac, sizeof(mac));
         }
+    }
+    if (haveKey) {
         TPM2_ForceZero(key, sizeof(key));
     }
     return rc;
@@ -1126,6 +1139,9 @@ static int FwNvAppendCheckpoint(FWTPM_CTX* ctx)
 
     /* MAC over [header .. current writePos) (this entry not included). */
     haveKey = FwNvGetIntegrityKey(ctx, key, &keySz);
+    if (haveKey < 0) {
+        return TPM_RC_FAILURE;
+    }
     if (haveKey) {
         rc = FwNvComputeJournalMac(ctx, key, keySz, mac);
         TPM2_ForceZero(key, sizeof(key));
@@ -2129,6 +2145,9 @@ static int FwNvInitAppendOnly(FWTPM_CTX* ctx, byte** valueBufP,
     int rc = TPM_RC_SUCCESS;
 
     haveKey = FwNvGetIntegrityKey(ctx, vKey, &vKeySz);
+    if (haveKey < 0) {
+        return TPM_RC_FAILURE;
+    }
 
     /* Pass 1: locate the last authenticated MAC checkpoint. */
     scanPos = (word32)sizeof(FWTPM_NV_HEADER);
@@ -2273,6 +2292,7 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
     word32 valueBufSz = FWTPM_NV_MAX_ENTRY;
     byte vKey[FWTPM_NV_KEY_SIZE];
     word32 vKeySz = 0;
+    int haveKey;
 
     if (ctx == NULL) {
         return BAD_FUNC_ARG;
@@ -2353,7 +2373,11 @@ int FWTPM_NV_Init(FWTPM_CTX* ctx)
         hdr.magic == FWTPM_NV_MAGIC &&
         hdr.version == FWTPM_NV_VERSION) {
         ctx->nvWritePos = hdr.writePos;
-        if (FwNvGetIntegrityKey(ctx, vKey, &vKeySz)) {
+        haveKey = FwNvGetIntegrityKey(ctx, vKey, &vKeySz);
+        if (haveKey < 0) {
+            rc = TPM_RC_FAILURE;
+        }
+        else if (haveKey) {
             byte storedMac[FWTPM_NV_MAC_SIZE];
             byte calcMac[FWTPM_NV_MAC_SIZE];
             if (ctx->nvWritePos + FWTPM_NV_MAC_SIZE > hal->maxSize) {
@@ -2498,6 +2522,9 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
     byte* buf = NULL;
     word32 bufSz = FWTPM_NV_MAX_ENTRY;
     word32 pos;
+    byte key[FWTPM_NV_KEY_SIZE];
+    word32 keySz = 0;
+    int haveKey;
     UINT64 clockValue = 0;
     int clockSafe;
 
@@ -2512,6 +2539,13 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
 
     hal = &ctx->nvHal;
     if (hal->write == NULL) {
+        return TPM_RC_FAILURE;
+    }
+
+    /* Keep the journal when the new one could not be authenticated */
+    haveKey = FwNvGetIntegrityKey(ctx, key, &keySz);
+    TPM2_ForceZero(key, sizeof(key));
+    if (haveKey < 0) {
         return TPM_RC_FAILURE;
     }
 
