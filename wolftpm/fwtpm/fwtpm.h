@@ -597,6 +597,7 @@ typedef struct FWTPM_Object {
     byte privKey[FWTPM_MAX_PRIVKEY_DER]; /* DER-encoded private key */
     int privKeySize;
     TPM2B_NAME name;                /* Object name = nameAlg || H(publicArea) */
+    TPM2B_NAME qualifiedName;       /* nameAlg || H(parent QN || name) */
 } FWTPM_Object;
 
 /* Hash sequence slot (for HashSequenceStart/SequenceUpdate/SequenceComplete) */

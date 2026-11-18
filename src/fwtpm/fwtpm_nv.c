@@ -672,6 +672,10 @@ static int FwNvMarshalObject(byte* buf, word32* pos, word32 maxSz,
     if (rc == 0) {
         rc = FwNvMarshalU32(buf, pos, maxSz, obj->hierarchy);
     }
+    /* Appended last so an older record still parses */
+    if (rc == 0) {
+        rc = FwNvMarshalName(buf, pos, maxSz, &obj->qualifiedName);
+    }
     return rc;
 }
 
@@ -722,6 +726,14 @@ static int FwNvUnmarshalObject(const byte* buf, word32* pos, word32 maxSz,
     }
     else if (rc == 0 && obj->handle >= PLATFORM_PERSISTENT) {
         obj->hierarchy = TPM_RH_PLATFORM;
+    }
+    /* Optional trailing Qualified Name. A record written without it does
+     * not say what the parent was, so the Name stands in. */
+    if (rc == 0 && *pos + 2 <= maxSz) {
+        rc = FwNvUnmarshalName(buf, pos, maxSz, &obj->qualifiedName);
+    }
+    else if (rc == 0) {
+        obj->qualifiedName = obj->name;
     }
     if (rc == 0) {
         /* Validate the handle after consuming the complete record so a
@@ -2785,7 +2797,8 @@ int FWTPM_NV_Save(FWTPM_CTX* ctx)
             word32 needed;
             pos = 0;
             needed = 4 + FWTPM_NV_PUBAREA_EST + FWTPM_NV_NAME_EST + 2 +
-                     ctx->persistent[i].privKeySize + FWTPM_NV_AUTH_EST;
+                     ctx->persistent[i].privKeySize + FWTPM_NV_AUTH_EST +
+                     2 + FWTPM_NV_NAME_EST;
             if (needed > bufSz) {
                 byte* newBuf;
                 newBuf = (byte*)XMALLOC(needed, NULL,
@@ -3271,7 +3284,8 @@ int FWTPM_NV_SavePersistent(FWTPM_CTX* ctx, int slot)
     }
 
     bufSz = 4 + FWTPM_NV_PUBAREA_EST + 2 + FWTPM_NV_NAME_EST + 2 +
-            obj->privKeySize + 2 + FWTPM_NV_AUTH_EST;
+            obj->privKeySize + 2 + FWTPM_NV_AUTH_EST +
+            2 + FWTPM_NV_NAME_EST;
 
     buf = (byte*)XMALLOC(bufSz, NULL, DYNAMIC_TYPE_TMP_BUFFER);
     if (buf == NULL) {
